@@ -40,11 +40,18 @@ def_params = {
 }
 
 image_map = {
-	"blue":"template-1",
-	# "cyan":"template-2",
-	# "red":"template-3",
-	# "yellow":"template-4",
-	"gray":"template-gray",
+	"blue": "template-1",
+	"gray": "template-gray",
+	"red": "template-3",
+	"green": "template-green",
+}
+
+DEFAULT_THEMES = ["blue", "gray"]
+THEME_LABELS = {
+	"blue": "آبی",
+	"gray": "خاکستری",
+	"red": "قرمز",
+	"green": "سبز",
 }
 
 class PersianFactor:
@@ -52,14 +59,21 @@ class PersianFactor:
 		self.msgShow = msgShow
 		pass
 
-	def makeFactor(self,ids:int,template_path:str,datas:dict):
-		""" Make An Factor Using Templates """
+	def makeFactor(self, ids: int, template_path: str, datas: dict, themes: list | None = None) -> bool:
+		"""Make an invoice using templates for the selected color themes."""
 
 		try:
+			selected = themes if themes else list(DEFAULT_THEMES)
+			invalid = [t for t in selected if t not in image_map]
+			if invalid:
+				raise ValueError(f"تم ناشناخته: {', '.join(invalid)}")
+			if not selected:
+				raise ValueError("حداقل یک رنگ باید انتخاب شود")
+
 			buffer = def_params.copy()
 			buffer.update(datas)
-			totalPrice = self.calculateTotal(list(buffer['items'].values()),datas['tax'],datas['off']) # type: ignore
-			buffer['factor_price_name'] = self.convertWord(totalPrice) + " ریال" 
+			totalPrice = self.calculateTotal(list(buffer['items'].values()), datas['tax'], datas['off'])  # type: ignore
+			buffer['factor_price_name'] = self.convertWord(totalPrice) + " ریال"
 			buffer['factor_price_number'] = self.formatNumber(str(totalPrice))
 
 			# PHASE 1
@@ -67,52 +81,58 @@ class PersianFactor:
 			dtab = doc.tables[0]
 			idx = 0
 			for x in buffer['items']:
-				buffer['items'][x] # type: ignore
-				# if idx != 0: dtab.add_row()
-				res = dtab.cell(idx,3)
+				buffer['items'][x]  # type: ignore
+				res = dtab.cell(idx, 3)
 				res.text = x
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-				res.paragraphs[0].style.font.size = Pt(7) # type: ignore
-				res = dtab.cell(idx,2)
-				res.text = self.persianNumber(str(buffer['items'][x][0])) # type: ignore
+				res.paragraphs[0].style.font.size = Pt(7)  # type: ignore
+				res = dtab.cell(idx, 2)
+				res.text = self.persianNumber(str(buffer['items'][x][0]))  # type: ignore
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-				res.paragraphs[0].style.font.size = Pt(7) # type: ignore
-				res = dtab.cell(idx,1)
-				res.text = self.formatNumber(str(buffer['items'][x][1])) # type: ignore
+				res.paragraphs[0].style.font.size = Pt(7)  # type: ignore
+				res = dtab.cell(idx, 1)
+				res.text = self.formatNumber(str(buffer['items'][x][1]))  # type: ignore
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-				res.paragraphs[0].style.font.size = Pt(7) # type: ignore
-				res = dtab.cell(idx,0)
-				res.text = self.formatNumber(str(round(buffer['items'][x][1] * buffer['items'][x][0]))) # type: ignore
+				res.paragraphs[0].style.font.size = Pt(7)  # type: ignore
+				res = dtab.cell(idx, 0)
+				res.text = self.formatNumber(str(round(buffer['items'][x][1] * buffer['items'][x][0])))  # type: ignore
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-				res.paragraphs[0].style.font.size = Pt(7) # type: ignore
+				res.paragraphs[0].style.font.size = Pt(7)  # type: ignore
 				idx += 1
 			for x in doc.tables:
-				x.style.font.name = "Vazir" # type: ignore
+				x.style.font.name = "Vazir"  # type: ignore
 
 			idx_dir = os.path.join(OUTPUT_DIR, str(ids))
 			os.makedirs(idx_dir, exist_ok=True)
 			base_path = os.path.join(idx_dir, f"{ids}-base.docx")
 			doc.save(base_path)
 
-			for theme_name, image_name in image_map.items():
+			generated = []
+			for theme_name in selected:
+				image_name = image_map[theme_name]
 				output_path = os.path.join(idx_dir, f"{ids}-{theme_name}.docx")
 				image_path = os.path.join(IMAGES_DIR, f"{image_name}.jpg")
-				print(output_path)
 				shutil.copyfile(base_path, output_path)
 				tpl = docxtpl.DocxTemplate(output_path)
 				tpl.replace_pic("background_image", image_path)
 				tpl.render(buffer)
 				tpl.save(output_path)
 				self.getPDF(output_path)
+				generated.append(theme_name)
 
 			try:
 				os.remove(base_path)
 			except OSError:
 				pass
 
-			if self.msgShow: self.msgShow(f"فاکتور با آیدی [{ids}] ساخته شد")
+			theme_names = "، ".join(THEME_LABELS.get(t, t) for t in generated)
+			if self.msgShow:
+				self.msgShow(f"فاکتور با آیدی [{ids}] ساخته شد\nرنگ‌ها: {theme_names}")
+			return True
 		except Exception as EXP:
-			if self.msgShow: self.msgShow(f"خطا در موتور\nPersianFactor.makeFactor() -> [{EXP}]")
+			if self.msgShow:
+				self.msgShow(f"خطا در موتور\nPersianFactor.makeFactor() -> [{EXP}]")
+			return False
 
 	def calculateTotal(self,items:list,tax:float,off:float):
 		""" Calculate The Total Price In The END """

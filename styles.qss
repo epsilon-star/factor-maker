@@ -1,0 +1,178 @@
+/* FactorMaker — Meta-Noia light theme */
+
+QMainWindow, QWidget#FactorRoot {
+	background-color: #eef2f7;
+	color: #1a2332;
+	font-size: 13px;
+}
+
+QLabel {
+	color: #1a2332;
+}
+
+QLabel#BrandTitle {
+	font-size: 22px;
+	font-weight: 700;
+	color: #0b4f8a;
+	padding: 4px 0;
+}
+
+QLabel#SectionTitle {
+	font-size: 14px;
+	font-weight: 600;
+	color: #0b4f8a;
+	padding-bottom: 4px;
+}
+
+QLabel#FieldLabel {
+	color: #4a5568;
+	min-width: 64px;
+}
+
+QLabel#TotalLabel {
+	font-size: 15px;
+	font-weight: 600;
+	color: #0b4f8a;
+}
+
+QFrame#HeaderBar, QFrame#FooterBar, QFrame#Panel {
+	background-color: #ffffff;
+	border: 1px solid #d5dee9;
+	border-radius: 10px;
+}
+
+QFrame#HeaderBar, QFrame#FooterBar {
+	padding: 8px;
+}
+
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QDoubleSpinBox {
+	background-color: #f7fafc;
+	border: 1px solid #c8d4e3;
+	border-radius: 6px;
+	padding: 6px 8px;
+	selection-background-color: #0b4f8a;
+	selection-color: #ffffff;
+}
+
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QDoubleSpinBox:focus {
+	border: 1px solid #0b4f8a;
+	background-color: #ffffff;
+}
+
+QComboBox::drop-down {
+	border: none;
+	width: 24px;
+}
+
+QTableWidget {
+	background-color: #ffffff;
+	border: 1px solid #c8d4e3;
+	border-radius: 6px;
+	gridline-color: #e2e8f0;
+	selection-background-color: #dbeafe;
+	selection-color: #1a2332;
+}
+
+QHeaderView::section {
+	background-color: #e8eef6;
+	color: #0b4f8a;
+	padding: 6px;
+	border: none;
+	border-bottom: 1px solid #c8d4e3;
+	font-weight: 600;
+}
+
+QPushButton {
+	background-color: #e8eef6;
+	color: #0b4f8a;
+	border: 1px solid #b8c9dc;
+	border-radius: 6px;
+	padding: 7px 14px;
+	font-weight: 600;
+}
+
+QPushButton:hover {
+	background-color: #d9e6f4;
+}
+
+QPushButton:pressed {
+	background-color: #c5d8ec;
+}
+
+QPushButton#PrimaryButton {
+	background-color: #0b4f8a;
+	color: #ffffff;
+	border: 1px solid #083d6b;
+	padding: 10px 22px;
+	font-size: 14px;
+}
+
+QPushButton#PrimaryButton:hover {
+	background-color: #0d5fa5;
+}
+
+QPushButton#PrimaryButton:pressed {
+	background-color: #083d6b;
+}
+
+QPushButton#DangerButton {
+	background-color: #fff1f0;
+	color: #b42318;
+	border: 1px solid #f3c1bc;
+}
+
+QPushButton#DangerButton:hover {
+	background-color: #ffe4e1;
+}
+
+QPushButton#ThemeChip {
+	background-color: #f0f4f8;
+	color: #4a5568;
+	border: 1px solid #c8d4e3;
+	border-radius: 16px;
+	padding: 5px 14px;
+	font-weight: 600;
+}
+
+QPushButton#ThemeChip:checked {
+	color: #ffffff;
+	border: 1px solid transparent;
+}
+
+QPushButton#ThemeChip[theme="blue"]:checked {
+	background-color: #2563eb;
+}
+
+QPushButton#ThemeChip[theme="gray"]:checked {
+	background-color: #64748b;
+}
+
+QPushButton#ThemeChip[theme="red"]:checked {
+	background-color: #dc2626;
+}
+
+QPushButton#ThemeChip[theme="green"]:checked {
+	background-color: #16a34a;
+}
+
+QPushButton#RowDeleteButton {
+	background-color: #fff1f0;
+	color: #b42318;
+	border: 1px solid #f3c1bc;
+	border-radius: 4px;
+	padding: 2px 8px;
+	font-size: 12px;
+}
+
+QScrollArea {
+	border: none;
+	background: transparent;
+}
+
+QMessageBox {
+	background-color: #ffffff;
+}
+
+QDialog {
+	background-color: #eef2f7;
+}

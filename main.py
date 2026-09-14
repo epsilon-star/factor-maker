@@ -1,129 +1,246 @@
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 import sys
-from factor_maker_ui import FactorMakerUI
-from engine import PersianFactor, APP_ROOT, image_map
-import jdatetime
 import os
+import jdatetime
+
+from factor_maker_ui import FactorMakerUI, ProfileDialog, load_app_stylesheet, try_set_vazir_font
+from engine import (
+	PersianFactor,
+	APP_ROOT,
+	image_map,
+	DEFAULT_THEMES,
+	THEME_LABELS,
+)
+import profiles as profile_store
 
 TEMPLATE_PATH = os.path.join(APP_ROOT, "templates", "template.docx")
 OUTPUT_DIR = os.path.join(APP_ROOT, "output")
 IMAGES_DIR = os.path.join(APP_ROOT, "images")
 
 
-def required_asset_errors():
-    """Return a list of missing required asset paths."""
-    missing = []
-    if not os.path.isfile(TEMPLATE_PATH):
-        missing.append(TEMPLATE_PATH)
-    for theme_file in image_map.values():
-        image_path = os.path.join(IMAGES_DIR, f"{theme_file}.jpg")
-        if not os.path.isfile(image_path):
-            missing.append(image_path)
-    return missing
+def required_asset_errors(themes: list[str] | None = None):
+	"""Return missing required asset paths for the selected themes."""
+	missing = []
+	if not os.path.isfile(TEMPLATE_PATH):
+		missing.append(TEMPLATE_PATH)
+
+	selected = themes if themes is not None else list(DEFAULT_THEMES)
+	for theme_name in selected:
+		image_name = image_map.get(theme_name)
+		if not image_name:
+			continue
+		image_path = os.path.join(IMAGES_DIR, f"{image_name}.jpg")
+		if not os.path.isfile(image_path):
+			label = THEME_LABELS.get(theme_name, theme_name)
+			missing.append(f"{image_path} ({label})")
+	return missing
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
+	def __init__(self):
+		super().__init__()
+		self.setWindowTitle("فاکتور ساز متانویا")
+		self.setMinimumSize(1000, 720)
 
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        os.makedirs(os.path.join(APP_ROOT, "templates"), exist_ok=True)
-        os.makedirs(IMAGES_DIR, exist_ok=True)
+		os.makedirs(OUTPUT_DIR, exist_ok=True)
+		os.makedirs(os.path.join(APP_ROOT, "templates"), exist_ok=True)
+		os.makedirs(IMAGES_DIR, exist_ok=True)
+		os.makedirs(os.path.join(APP_ROOT, "profiles"), exist_ok=True)
 
-        self.ui = FactorMakerUI()
-        self.setCentralWidget(self.ui)
+		self.ui = FactorMakerUI()
+		self.setCentralWidget(self.ui)
+		self._engine = PersianFactor(self.showMessage)
 
-        self.ui.generate_btn.clicked.connect(self.makeFactor)
+		self.ui.generate_btn.clicked.connect(self.makeFactor)
+		self.ui.profile_changed.connect(self.on_profile_selected)
+		self.ui.profile_new_requested.connect(self.on_profile_new)
+		self.ui.profile_edit_requested.connect(self.on_profile_edit)
+		self.ui.profile_delete_requested.connect(self.on_profile_delete)
+		self.ui.total_inputs_changed.connect(self.update_total_preview)
 
-        tt = jdatetime.datetime.now()
+		tt = jdatetime.datetime.now()
+		self.ui.id_input.setText(str(tt.year)[1:] + "00" + "000")
+		self.ui.date_input.setText(tt.strftime("%Y/%m/%d"))
 
-        # first inputs
-        self.ui.id_input.setText(str(tt.year)[1:] + "00" +  "000")
-        self.ui.date_input.setText(tt.strftime("%Y/%m/%d"))
-        self.ui.from_input.setText("تیم توسعه دهنده متانویا")
-        self.ui.phone_input.setText("09000000000")
+		self.reload_profiles()
+		self.update_total_preview()
 
-        missing = required_asset_errors()
-        if missing:
-            listed = "\n".join(missing)
-            self.showMessage(
-                "فایل‌های مورد نیاز پیدا نشدند:\n"
-                f"{listed}\n\n"
-                "لطفا قالب و تصاویر را در پوشه برنامه قرار دهید."
-            )
+		# Soft warning for default themes only (red/green optional)
+		missing = required_asset_errors(list(DEFAULT_THEMES))
+		if missing:
+			listed = "\n".join(missing)
+			self.showMessage(
+				"فایل‌های مورد نیاز پیدا نشدند:\n"
+				f"{listed}\n\n"
+				"لطفا قالب و تصاویر را در پوشه برنامه قرار دهید."
+			)
 
-    def showMessage(self, message:str):
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("پیام")
-        msg_box.setText(message)
-        msg_box.exec()
+	def showMessage(self, message: str):
+		msg_box = QMessageBox(self)
+		msg_box.setWindowTitle("پیام")
+		msg_box.setText(message)
+		msg_box.exec()
 
-    def makeFactor(self):
-        missing = required_asset_errors()
-        if missing:
-            listed = "\n".join(missing)
-            self.showMessage(f"فایل‌های مورد نیاز پیدا نشدند:\n{listed}")
-            return
+	def reload_profiles(self, prefer_id: str | None = None):
+		store = profile_store.load_store()
+		profiles = store["profiles"]
+		selected = prefer_id or store.get("last_profile_id")
+		self.ui.set_profiles(profiles, selected)
+		active = profile_store.get_profile(selected) if selected else None
+		if not active:
+			active = profile_store.get_active_profile()
+		self.ui.apply_profile(active)
+		profile_store.set_last_profile(active["id"])
 
-        d = PersianFactor(self.showMessage)
+	def on_profile_selected(self, profile_id: str):
+		profile = profile_store.get_profile(profile_id)
+		if not profile:
+			return
+		self.ui.apply_profile(profile)
+		profile_store.set_last_profile(profile_id)
+		self.update_total_preview()
 
-        if not len(self.ui.id_input.text()):
-            self.showMessage("لطفا ایدی را مشخص کنید")
-            return
-        if not len(self.ui.date_input.text()):
-            self.showMessage("لطفا تاریخ را مشخص کنید")
-            return
-        if not len(self.ui.title_input.text()):
-            self.showMessage("لطفا عنوان را مشخص کنید")
-            return
-        if not len(self.ui.from_input.text()):
-            self.showMessage("لطفا از را مشخص کنید")
-            return
-        if not len(self.ui.phone_input.text()):
-            self.showMessage("لطفا تلفن را مشخص کنید")
-            return
-        if not len(self.ui.location_input.toPlainText()):
-            self.showMessage("لطفا آدرس را مشخص کنید")
-            return
+	def on_profile_new(self):
+		dialog = ProfileDialog(self, is_new=True)
+		if dialog.exec() != ProfileDialog.DialogCode.Accepted:
+			return
+		data = dialog.result_profile()
+		saved = profile_store.upsert_profile(data, make_default=data.get("is_default", False))
+		self.reload_profiles(prefer_id=saved["id"])
 
-        items, items_error = self.ui.get_table_items()
-        if items_error:
-            self.showMessage(items_error)
-            return
+	def on_profile_edit(self):
+		pid = self.ui.current_profile_id()
+		if not pid:
+			return
+		profile = profile_store.get_profile(pid)
+		if not profile:
+			return
+		dialog = ProfileDialog(self, profile=profile, is_new=False)
+		if dialog.exec() != ProfileDialog.DialogCode.Accepted:
+			return
+		data = dialog.result_profile()
+		saved = profile_store.upsert_profile(data, make_default=data.get("is_default", False))
+		self.reload_profiles(prefer_id=saved["id"])
 
-        try:
-            factor_id = int(self.ui.id_input.text().strip())
-        except ValueError:
-            self.showMessage("ایدی باید عدد باشد")
-            return
+	def on_profile_delete(self):
+		pid = self.ui.current_profile_id()
+		if not pid:
+			return
+		profiles = profile_store.list_profiles()
+		if len(profiles) <= 1:
+			self.showMessage("حداقل یک پروفایل باید باقی بماند")
+			return
+		profile = profile_store.get_profile(pid)
+		name = (profile or {}).get("name", "")
+		confirm = QMessageBox.question(
+			self,
+			"حذف پروفایل",
+			f"پروفایل «{name}» حذف شود؟",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+		)
+		if confirm != QMessageBox.StandardButton.Yes:
+			return
+		if not profile_store.delete_profile(pid):
+			self.showMessage("حذف پروفایل ممکن نشد")
+			return
+		self.reload_profiles()
 
-        datas = {
-            "factor_id": d.persianNumber(self.ui.id_input.text()),
-            "factor_date": d.persianNumber(self.ui.date_input.text()),
-            "factor_addons": d.persianNumber(self.ui.addons_input.text()),
+	def update_total_preview(self):
+		items, error = self.ui.get_table_items()
+		if error or not items:
+			self.ui.set_total_text("جمع کل: ۰ ریال")
+			return
+		total = self._engine.calculateTotal(
+			list(items.values()),
+			float(self.ui.tax_input.value()),
+			float(self.ui.off_input.value()),
+		)
+		formatted = self._engine.formatNumber(str(total))
+		self.ui.set_total_text(f"جمع کل: {formatted} ریال")
 
-            "title": self.ui.title_input.text(),
-            "sby": self.ui.from_input.text(),
-            "phone": self.ui.phone_input.text(),
-            "location": self.ui.location_input.toPlainText(),
+	def makeFactor(self):
+		themes = self.ui.selected_themes()
+		if not themes:
+			self.showMessage("حداقل یک رنگ فاکتور را انتخاب کنید")
+			return
 
-            "items": items,
-            "off": float(self.ui.off_input.value()),
-            "tax": float(self.ui.tax_input.value()),
+		missing = required_asset_errors(themes)
+		if missing:
+			listed = "\n".join(missing)
+			self.showMessage(f"فایل‌های مورد نیاز پیدا نشدند:\n{listed}")
+			return
 
-            "factor_disc_1": d.persianNumber(self.ui.desc1_input.toPlainText()),
-            "factor_disc_2": d.persianNumber(self.ui.desc2_input.toPlainText())
-        }
-        try:
-            d.makeFactor(factor_id, TEMPLATE_PATH, datas)
-        except Exception as exc:
-            self.showMessage(f"خطا در تولید فاکتور\n{exc}")
+		if not len(self.ui.id_input.text()):
+			self.showMessage("لطفا آیدی را مشخص کنید")
+			return
+		if not len(self.ui.date_input.text()):
+			self.showMessage("لطفا تاریخ را مشخص کنید")
+			return
+		if not len(self.ui.title_input.text()):
+			self.showMessage("لطفا عنوان را مشخص کنید")
+			return
+		if not len(self.ui.from_input.text()):
+			self.showMessage("لطفا از را مشخص کنید")
+			return
+		if not len(self.ui.phone_input.text()):
+			self.showMessage("لطفا تلفن را مشخص کنید")
+			return
+		if not len(self.ui.location_input.toPlainText()):
+			self.showMessage("لطفا آدرس را مشخص کنید")
+			return
+
+		items, items_error = self.ui.get_table_items()
+		if items_error:
+			self.showMessage(items_error)
+			return
+
+		try:
+			factor_id = int(self.ui.id_input.text().strip())
+		except ValueError:
+			self.showMessage("آیدی باید عدد باشد")
+			return
+
+		d = self._engine
+		datas = {
+			"factor_id": d.persianNumber(self.ui.id_input.text()),
+			"factor_date": d.persianNumber(self.ui.date_input.text()),
+			"factor_addons": d.persianNumber(self.ui.addons_input.text()),
+			"title": self.ui.title_input.text(),
+			"sby": self.ui.from_input.text(),
+			"phone": self.ui.phone_input.text(),
+			"location": self.ui.location_input.toPlainText(),
+			"items": items,
+			"off": float(self.ui.off_input.value()),
+			"tax": float(self.ui.tax_input.value()),
+			"factor_disc_1": d.persianNumber(self.ui.desc1_input.toPlainText()),
+			"factor_disc_2": d.persianNumber(self.ui.desc2_input.toPlainText()),
+		}
+		ok = d.makeFactor(factor_id, TEMPLATE_PATH, datas, themes=themes)
+		if not ok:
+			return
+
+		# Remember last-used themes on the active profile
+		pid = self.ui.current_profile_id()
+		if pid:
+			current = profile_store.get_profile(pid)
+			if current:
+				current["preferred_themes"] = themes
+				profile_store.upsert_profile(current)
+
 
 def main():
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+	app = QApplication(sys.argv)
+	app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+	try_set_vazir_font(app)
+	stylesheet = load_app_stylesheet(APP_ROOT)
+	if stylesheet:
+		app.setStyleSheet(stylesheet)
+
+	window = MainWindow()
+	window.show()
+	sys.exit(app.exec())
+
 
 if __name__ == "__main__":
-    main()
+	main()
