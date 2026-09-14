@@ -1,10 +1,11 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
 	QWidget, QLabel, QLineEdit, QTextEdit, QVBoxLayout, QHBoxLayout,
 	QTableWidget, QTableWidgetItem, QPushButton, QHeaderView, QDoubleSpinBox,
 	QScrollArea, QSizePolicy, QMessageBox, QFrame, QComboBox, QDialog,
 	QDialogButtonBox, QFormLayout, QCheckBox, QAbstractItemView, QGridLayout,
+	QAbstractSpinBox, QProgressBar,
 )
 import os
 
@@ -13,11 +14,17 @@ import engine as engine_mod
 
 MAX_ITEMS = 13
 
+# Physical right — ignores RTL mirroring of AlignLeft/AlignRight
+ALIGN_RIGHT = Qt.AlignmentFlag.AlignAbsolute | Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+ALIGN_RIGHT_TOP = Qt.AlignmentFlag.AlignAbsolute | Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop
+
 THEME_OBJECT_NAMES = {
 	"blue": "ThemeBlue",
 	"cyan": "ThemeCyan",
-	"gray": "ThemeGray",
 	"red": "ThemeRed",
+	"yellow": "ThemeYellow",
+	"green": "ThemeGreen",
+	"gray": "ThemeGray",
 }
 
 
@@ -26,12 +33,16 @@ def load_app_stylesheet(app_root: str, dark: bool = False) -> str:
 	path = os.path.join(app_root, name)
 	try:
 		with open(path, "r", encoding="utf-8") as fh:
-			return fh.read()
+			css = fh.read()
 	except OSError:
-		# Fall back to light theme if dark file is missing
 		if dark:
 			return load_app_stylesheet(app_root, dark=False)
 		return ""
+
+	# Resolve icon paths so QSS works regardless of CWD
+	icons_dir = os.path.join(app_root, "icons").replace("\\", "/")
+	css = css.replace("icons/", f"{icons_dir}/")
+	return css
 
 
 def apply_app_font(app) -> str | None:
@@ -60,9 +71,134 @@ def apply_app_font(app) -> str | None:
 	return None
 
 
-def try_set_vazir_font(app) -> None:
-	"""Backward-compatible alias."""
-	apply_app_font(app)
+def style_combo(combo: QComboBox) -> QComboBox:
+	combo.setEditable(False)
+	combo.setMaxVisibleItems(12)
+	combo.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+	combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+	return combo
+
+
+def style_spin(spin: QDoubleSpinBox) -> QDoubleSpinBox:
+	spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+	spin.setAlignment(ALIGN_RIGHT)
+	spin.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+	spin.setKeyboardTracking(False)
+	spin.setDecimals(2)
+	spin.setSingleStep(1.0)
+	return spin
+
+
+def style_text_input(widget: QWidget) -> QWidget:
+	"""Force text to the physical right inside inputs (Persian RTL)."""
+	widget.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+	if isinstance(widget, QLineEdit):
+		widget.setAlignment(ALIGN_RIGHT)
+	elif isinstance(widget, QTextEdit):
+		align = Qt.AlignmentFlag.AlignAbsolute | Qt.AlignmentFlag.AlignRight
+
+		def _force_right_align(edit: QTextEdit = widget, flag: Qt.AlignmentFlag = align):
+			edit.blockSignals(True)
+			try:
+				edit.setAlignment(flag)
+				doc = edit.document()
+				opt = doc.defaultTextOption()
+				opt.setAlignment(flag)
+				opt.setTextDirection(Qt.LayoutDirection.RightToLeft)
+				doc.setDefaultTextOption(opt)
+			finally:
+				edit.blockSignals(False)
+
+		_force_right_align()
+		widget.textChanged.connect(_force_right_align)
+	return widget
+
+
+def style_label(label: QLabel, *, title: bool = False) -> QLabel:
+	label.setAlignment(ALIGN_RIGHT)
+	label.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+	if title:
+		label.setObjectName("SectionTitle")
+	return label
+
+
+def force_layout_right(layout) -> None:
+	"""Pin a layout's child alignment to the physical right."""
+	layout.setAlignment(ALIGN_RIGHT)
+
+
+class ProgressDialog(QDialog):
+	"""Modal progress window shown while generating invoices."""
+
+	def __init__(self, parent=None):
+		super().__init__(parent)
+		self.setWindowTitle("در حال تولید فاکتور")
+		self.setModal(True)
+		self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+		self.setMinimumWidth(420)
+		self.setWindowFlags(
+			Qt.WindowType.Dialog
+			| Qt.WindowType.CustomizeWindowHint
+			| Qt.WindowType.WindowTitleHint
+		)
+
+		layout = QVBoxLayout(self)
+		layout.setContentsMargins(20, 20, 20, 20)
+		layout.setSpacing(14)
+
+		title = QLabel("لطفا صبر کنید…")
+		title.setObjectName("SectionTitle")
+		title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		layout.addWidget(title)
+
+		self.status_label = QLabel("شروع تولید فاکتور")
+		self.status_label.setObjectName("HintLabel")
+		self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		self.status_label.setWordWrap(True)
+		layout.addWidget(self.status_label)
+
+		self.bar = QProgressBar()
+		self.bar.setRange(0, 100)
+		self.bar.setValue(0)
+		self.bar.setTextVisible(True)
+		self.bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		self.bar.setMinimumHeight(22)
+		layout.addWidget(self.bar)
+
+		self.detail_label = QLabel("")
+		self.detail_label.setObjectName("HintLabel")
+		self.detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		layout.addWidget(self.detail_label)
+
+	def update_progress(self, current: int, total: int, message: str):
+		total = max(total, 1)
+		pct = int(round(100 * current / total))
+		self.bar.setValue(min(max(pct, 0), 100))
+		self.status_label.setText(message)
+		self.detail_label.setText(f"{current} از {total}")
+
+
+class GenerateWorker(QThread):
+	progress = Signal(int, int, str)
+	finished_ok = Signal(bool)
+
+	def __init__(self, engine, factor_id, template_path, datas, themes, parent=None):
+		super().__init__(parent)
+		self._engine = engine
+		self._factor_id = factor_id
+		self._template_path = template_path
+		self._datas = datas
+		self._themes = themes
+
+	def run(self):
+		ok = self._engine.makeFactor(
+			self._factor_id,
+			self._template_path,
+			self._datas,
+			themes=self._themes,
+			progress=lambda c, t, m: self.progress.emit(c, t, m),
+		)
+		self.finished_ok.emit(bool(ok))
 
 
 class ProfileDialog(QDialog):
@@ -70,6 +206,7 @@ class ProfileDialog(QDialog):
 		super().__init__(parent)
 		self.setWindowTitle("پروفایل جدید" if is_new else "ویرایش پروفایل")
 		self.setMinimumWidth(440)
+		self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 		self._profile_id = (profile or {}).get("id") if profile and not is_new else None
 
 		layout = QVBoxLayout(self)
@@ -77,16 +214,17 @@ class ProfileDialog(QDialog):
 		layout.setSpacing(12)
 		form = QFormLayout()
 		form.setSpacing(10)
-		form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+		form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+		form.setFormAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
 
-		self.name_input = QLineEdit((profile or {}).get("name", ""))
-		self.sby_input = QLineEdit((profile or {}).get("sby", ""))
-		self.phone_input = QLineEdit((profile or {}).get("phone", ""))
-		self.location_input = QTextEdit()
+		self.name_input = style_text_input(QLineEdit((profile or {}).get("name", "")))
+		self.sby_input = style_text_input(QLineEdit((profile or {}).get("sby", "")))
+		self.phone_input = style_text_input(QLineEdit((profile or {}).get("phone", "")))
+		self.location_input = style_text_input(QTextEdit())
 		self.location_input.setFixedHeight(70)
 		self.location_input.setPlainText((profile or {}).get("location", ""))
-		self.off_input = QDoubleSpinBox()
-		self.tax_input = QDoubleSpinBox()
+		self.off_input = style_spin(QDoubleSpinBox())
+		self.tax_input = style_spin(QDoubleSpinBox())
 		self.off_input.setRange(0, 100)
 		self.tax_input.setRange(0, 100)
 		self.off_input.setSuffix(" %")
@@ -174,6 +312,7 @@ class FactorMakerUI(QWidget):
 		self.setObjectName("FactorRoot")
 		self.setWindowTitle("FactorMaker")
 		self.setMinimumSize(1080, 720)
+		self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 		self.theme_buttons: dict[str, QPushButton] = {}
 		self._loading_profile = False
 		self.init_ui()
@@ -233,9 +372,9 @@ class FactorMakerUI(QWidget):
 		profile_row.setContentsMargins(0, 0, 0, 0)
 		profile_row.setSpacing(8)
 
-		profile_label = QLabel("پروفایل")
+		profile_label = style_label(QLabel("پروفایل"))
 		profile_label.setObjectName("FieldLabel")
-		self.profile_combo = QComboBox()
+		self.profile_combo = style_combo(QComboBox())
 		self.profile_combo.setMinimumWidth(170)
 		self.profile_combo.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 		self.profile_combo.currentIndexChanged.connect(self._on_profile_combo_changed)
@@ -250,7 +389,7 @@ class FactorMakerUI(QWidget):
 		self.profile_edit_btn.clicked.connect(self.profile_edit_requested.emit)
 		self.profile_delete_btn.clicked.connect(self.profile_delete_requested.emit)
 
-		profile_row.addWidget(profile_label)
+		profile_row.addWidget(profile_label, alignment=ALIGN_RIGHT)
 		profile_row.addWidget(self.profile_combo)
 		profile_row.addWidget(self.profile_new_btn)
 		profile_row.addWidget(self.profile_edit_btn)
@@ -260,9 +399,9 @@ class FactorMakerUI(QWidget):
 
 		theme_row = QHBoxLayout()
 		theme_row.setSpacing(8)
-		theme_label = QLabel("رنگ فاکتور")
+		theme_label = style_label(QLabel("رنگ فاکتور"))
 		theme_label.setObjectName("FieldLabel")
-		theme_row.addWidget(theme_label)
+		theme_row.addWidget(theme_label, alignment=ALIGN_RIGHT)
 		for key in image_map:
 			btn = QPushButton(THEME_LABELS.get(key, key))
 			btn.setCheckable(True)
@@ -273,9 +412,9 @@ class FactorMakerUI(QWidget):
 			self._refresh_theme_chip_style(btn, key, btn.isChecked())
 			theme_row.addWidget(btn)
 		theme_row.addStretch(1)
-		hint = QLabel("حداقل یک رنگ را انتخاب کنید")
+		hint = style_label(QLabel("حداقل یک رنگ را انتخاب کنید"))
 		hint.setObjectName("HintLabel")
-		theme_row.addWidget(hint)
+		theme_row.addWidget(hint, alignment=ALIGN_RIGHT)
 		layout.addLayout(theme_row)
 		return header
 
@@ -289,65 +428,76 @@ class FactorMakerUI(QWidget):
 
 	def _build_meta_column(self) -> QWidget:
 		col = QWidget()
+		col.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 		layout = QVBoxLayout(col)
 		layout.setContentsMargins(0, 0, 0, 0)
 		layout.setSpacing(14)
+		force_layout_right(layout)
 
 		invoice_box = QFrame()
 		invoice_box.setObjectName("SectionBox")
+		invoice_box.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 		invoice_layout = QVBoxLayout(invoice_box)
 		invoice_layout.setContentsMargins(0, 0, 0, 0)
 		invoice_layout.setSpacing(8)
-		invoice_title = QLabel("اطلاعات فاکتور")
-		invoice_title.setObjectName("SectionTitle")
-		invoice_layout.addWidget(invoice_title)
+		force_layout_right(invoice_layout)
+		invoice_title = style_label(QLabel("اطلاعات فاکتور"), title=True)
+		invoice_layout.addWidget(invoice_title, alignment=ALIGN_RIGHT)
 
-		self.id_input = QLineEdit()
-		self.date_input = QLineEdit()
-		self.addons_input = QLineEdit()
-		self.title_input = QLineEdit()
-		invoice_layout.addLayout(self._field_row(self.id_input, "آیدی"))
-		invoice_layout.addLayout(self._field_row(self.date_input, "تاریخ"))
-		invoice_layout.addLayout(self._field_row(self.title_input, "عنوان"))
-		invoice_layout.addLayout(self._field_row(self.addons_input, "افزونه‌ها"))
+		self.id_input = style_text_input(QLineEdit())
+		self.date_input = style_text_input(QLineEdit())
+		self.addons_input = style_text_input(QLineEdit())
+		self.title_input = style_text_input(QLineEdit())
+		invoice_layout.addWidget(self._field_row(self.id_input, "آیدی"))
+		invoice_layout.addWidget(self._field_row(self.date_input, "تاریخ"))
+		invoice_layout.addWidget(self._field_row(self.title_input, "عنوان"))
+		invoice_layout.addWidget(self._field_row(self.addons_input, "افزونه‌ها"))
 		layout.addWidget(invoice_box)
 
 		seller_box = QFrame()
 		seller_box.setObjectName("SectionBox")
+		seller_box.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 		seller_layout = QVBoxLayout(seller_box)
 		seller_layout.setContentsMargins(0, 0, 0, 0)
 		seller_layout.setSpacing(8)
-		seller_title = QLabel("اطلاعات فروشنده")
-		seller_title.setObjectName("SectionTitle")
-		seller_layout.addWidget(seller_title)
+		force_layout_right(seller_layout)
+		seller_title = style_label(QLabel("اطلاعات فروشنده"), title=True)
+		seller_layout.addWidget(seller_title, alignment=ALIGN_RIGHT)
 
-		self.from_input = QLineEdit()
-		self.phone_input = QLineEdit()
-		self.location_input = QTextEdit()
+		self.from_input = style_text_input(QLineEdit())
+		self.phone_input = style_text_input(QLineEdit())
+		self.location_input = style_text_input(QTextEdit())
 		self.location_input.setMinimumHeight(100)
 		self.location_input.setMaximumHeight(140)
-		seller_layout.addLayout(self._field_row(self.from_input, "از"))
-		seller_layout.addLayout(self._field_row(self.phone_input, "تلفن"))
-		seller_layout.addLayout(self._field_row(self.location_input, "آدرس"))
+		seller_layout.addWidget(self._field_row(self.from_input, "از"))
+		seller_layout.addWidget(self._field_row(self.phone_input, "تلفن"))
+		seller_layout.addWidget(self._field_row(self.location_input, "آدرس"))
 		layout.addWidget(seller_box)
 		layout.addStretch(1)
 		return col
 
 	def _build_items_column(self) -> QWidget:
 		col = QWidget()
+		col.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 		layout = QVBoxLayout(col)
 		layout.setContentsMargins(0, 0, 0, 0)
 		layout.setSpacing(10)
+		force_layout_right(layout)
 
-		items_title = QLabel("آیتم‌ها")
-		items_title.setObjectName("SectionTitle")
-		layout.addWidget(items_title)
+		items_title = style_label(QLabel("آیتم‌ها"), title=True)
+		layout.addWidget(items_title, alignment=ALIGN_RIGHT)
 
 		self.items_table = QTableWidget(0, 4)
+		# LTR column order so indexes match the screen left→right:
+		# عملیات | قیمت | تعداد | نام  (نام on the far right)
+		self.items_table.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 		self.items_table.setHorizontalHeaderLabels(["عملیات", "قیمت (ریال)", "تعداد", "نام"])
 		self.items_table.setAlternatingRowColors(True)
-		self.items_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # type: ignore
-		self.items_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)  # type: ignore
+		header = self.items_table.horizontalHeader()
+		header.setSectionResizeMode(QHeaderView.Stretch)  # type: ignore
+		header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # type: ignore
+		header.setDefaultAlignment(ALIGN_RIGHT)
+		header.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 		self.items_table.verticalHeader().setVisible(False)
 		self.items_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 		self.items_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -359,44 +509,45 @@ class FactorMakerUI(QWidget):
 		self.add_item_btn = QPushButton("＋  افزودن آیتم")
 		self.add_item_btn.setObjectName("AddItemButton")
 		self.add_item_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+		self.add_item_btn.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 		self.add_item_btn.clicked.connect(self.add_item_row)
 		layout.addWidget(self.add_item_btn)
 
-		rates = QGridLayout()
-		rates.setHorizontalSpacing(12)
-		rates.setVerticalSpacing(6)
-		self.off_input = QDoubleSpinBox()
-		self.tax_input = QDoubleSpinBox()
+		rates = QHBoxLayout()
+		rates.setSpacing(12)
+		force_layout_right(rates)
+		self.off_input = style_spin(QDoubleSpinBox())
+		self.tax_input = style_spin(QDoubleSpinBox())
 		self.off_input.setRange(0, 100)
 		self.tax_input.setRange(0, 100)
 		self.off_input.setSuffix(" %")
 		self.tax_input.setSuffix(" %")
-		rates.addLayout(self._field_row(self.off_input, "تخفیف"), 0, 0)
-		rates.addLayout(self._field_row(self.tax_input, "مالیات"), 0, 1)
+		rates.addWidget(self._field_row(self.off_input, "تخفیف"), stretch=1)
+		rates.addWidget(self._field_row(self.tax_input, "مالیات"), stretch=1)
 		layout.addLayout(rates)
 
-		notes_title = QLabel("توضیحات")
-		notes_title.setObjectName("SectionTitle")
-		layout.addWidget(notes_title)
+		notes_title = style_label(QLabel("توضیحات"), title=True)
+		layout.addWidget(notes_title, alignment=ALIGN_RIGHT)
 
-		self.desc1_input = QTextEdit()
-		self.desc2_input = QTextEdit()
+		self.desc1_input = style_text_input(QTextEdit())
+		self.desc2_input = style_text_input(QTextEdit())
 		self.desc1_input.setFixedHeight(58)
 		self.desc2_input.setFixedHeight(58)
-		layout.addLayout(self._field_row(self.desc1_input, "توضیحات ۱"))
-		layout.addLayout(self._field_row(self.desc2_input, "توضیحات ۲"))
+		layout.addWidget(self._field_row(self.desc1_input, "توضیحات ۱"))
+		layout.addWidget(self._field_row(self.desc2_input, "توضیحات ۲"))
 		return col
 
 	def _build_footer(self) -> QFrame:
 		footer = QFrame()
 		footer.setObjectName("FooterBar")
+		footer.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 		layout = QHBoxLayout(footer)
 		layout.setContentsMargins(16, 12, 16, 12)
 		layout.setSpacing(12)
 
-		self.total_label = QLabel("جمع کل: ۰ ریال")
+		self.total_label = style_label(QLabel("جمع کل: ۰ ریال"))
 		self.total_label.setObjectName("TotalLabel")
-		layout.addWidget(self.total_label)
+		layout.addWidget(self.total_label, alignment=ALIGN_RIGHT)
 		layout.addStretch(1)
 
 		self.generate_btn = QPushButton("تولید فاکتور")
@@ -406,17 +557,22 @@ class FactorMakerUI(QWidget):
 		layout.addWidget(self.generate_btn)
 		return footer
 
-	def _field_row(self, widget: QWidget, label_text: str) -> QHBoxLayout:
-		row = QHBoxLayout()
+	def _field_row(self, widget: QWidget, label_text: str) -> QWidget:
+		"""Label on the right, control fills the rest — text inside control is right-aligned."""
+		wrap = QWidget()
+		wrap.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+		row = QHBoxLayout(wrap)
 		row.setContentsMargins(0, 0, 0, 0)
 		row.setSpacing(10)
-		label = QLabel(label_text)
+		force_layout_right(row)
+
+		label = style_label(QLabel(label_text))
 		label.setObjectName("FieldLabel")
-		label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
-		# In RTL: widget first (expands leftward), label on the right edge.
+		label.setMinimumWidth(78)
+
+		row.addWidget(label, stretch=0, alignment=ALIGN_RIGHT)
 		row.addWidget(widget, stretch=1)
-		row.addWidget(label, stretch=0)
-		return row
+		return wrap
 
 	def _wire_total_signals(self):
 		self.off_input.valueChanged.connect(lambda *_: self.total_inputs_changed.emit())
@@ -500,6 +656,7 @@ class FactorMakerUI(QWidget):
 	def get_table_items(self):
 		"""Parse table rows into {name: [count, price]}.
 
+		Columns: 0=عملیات, 1=قیمت, 2=تعداد, 3=نام
 		Returns (items, error_message). On success error_message is None.
 		"""
 		items = {}
@@ -543,9 +700,14 @@ class FactorMakerUI(QWidget):
 		row = self.items_table.rowCount()
 		self.items_table.blockSignals(True)
 		self.items_table.insertRow(row)
-		self.items_table.setItem(row, 1, QTableWidgetItem("0"))
-		self.items_table.setItem(row, 2, QTableWidgetItem("1"))
-		self.items_table.setItem(row, 3, QTableWidgetItem(""))
+		price_item = QTableWidgetItem("0")
+		count_item = QTableWidgetItem("1")
+		name_item = QTableWidgetItem("")
+		for item in (price_item, count_item, name_item):
+			item.setTextAlignment(int(ALIGN_RIGHT))
+		self.items_table.setItem(row, 1, price_item)
+		self.items_table.setItem(row, 2, count_item)
+		self.items_table.setItem(row, 3, name_item)
 		self.items_table.blockSignals(False)
 		self._set_delete_button(row)
 		self.total_inputs_changed.emit()

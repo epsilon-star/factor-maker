@@ -43,6 +43,8 @@ image_map = {
 	"blue": "template-1",
 	"cyan": "template-2",
 	"red": "template-3",
+	"yellow": "template-4",
+	"green": "template-5",
 	"gray": "template-gray",
 }
 
@@ -51,6 +53,8 @@ THEME_LABELS = {
 	"blue": "آبی",
 	"cyan": "فیروزه‌ای",
 	"red": "قرمز",
+	"yellow": "زرد",
+	"green": "سبز",
 	"gray": "خاکستری",
 }
 
@@ -105,8 +109,18 @@ class PersianFactor:
 							run.font.name = font_name
 							self._set_run_font_eastasia(run, font_name)
 
-	def makeFactor(self, ids: int, template_path: str, datas: dict, themes: list | None = None) -> bool:
-		"""Make an invoice using templates for the selected color themes."""
+	def makeFactor(self, ids: int, template_path: str, datas: dict, themes: list | None = None, progress=None) -> bool:
+		"""Make an invoice using templates for the selected color themes.
+
+		progress: optional callable(current: int, total: int, message: str)
+		"""
+
+		def report(current: int, total: int, message: str):
+			if progress:
+				try:
+					progress(current, total, message)
+				except Exception:
+					pass
 
 		try:
 			selected = themes if themes else list(DEFAULT_THEMES)
@@ -116,6 +130,10 @@ class PersianFactor:
 			if not selected:
 				raise ValueError("حداقل یک رنگ باید انتخاب شود")
 
+			total_steps = 2 + len(selected)
+			step = 0
+
+			report(step, total_steps, "آماده‌سازی اطلاعات فاکتور…")
 			buffer = def_params.copy()
 			buffer.update(datas)
 			totalPrice = self.calculateTotal(list(buffer['items'].values()), datas['tax'], datas['off'])  # type: ignore
@@ -152,9 +170,13 @@ class PersianFactor:
 			os.makedirs(idx_dir, exist_ok=True)
 			base_path = os.path.join(idx_dir, f"{ids}-base.docx")
 			doc.save(base_path)
+			step += 1
+			report(step, total_steps, "قالب پایه ذخیره شد")
 
 			generated = []
 			for theme_name in selected:
+				label = THEME_LABELS.get(theme_name, theme_name)
+				report(step, total_steps, f"ساخت فاکتور رنگ {label}…")
 				image_name = image_map[theme_name]
 				output_path = os.path.join(idx_dir, f"{ids}-{theme_name}.docx")
 				image_path = os.path.join(IMAGES_DIR, f"{image_name}.jpg")
@@ -167,14 +189,18 @@ class PersianFactor:
 				rendered = docx.Document(output_path)
 				self._apply_font_to_document(rendered)
 				rendered.save(output_path)
+				report(step, total_steps, f"تبدیل PDF رنگ {label}…")
 				self.getPDF(output_path)
 				generated.append(theme_name)
+				step += 1
+				report(step, total_steps, f"رنگ {label} آماده شد")
 
 			try:
 				os.remove(base_path)
 			except OSError:
 				pass
 
+			report(total_steps, total_steps, "اتمام تولید فاکتور")
 			theme_names = "، ".join(THEME_LABELS.get(t, t) for t in generated)
 			if self.msgShow:
 				self.msgShow(f"فاکتور با آیدی [{ids}] ساخته شد\nرنگ‌ها: {theme_names}")

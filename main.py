@@ -5,7 +5,14 @@ import sys
 import os
 import jdatetime
 
-from factor_maker_ui import FactorMakerUI, ProfileDialog, load_app_stylesheet, apply_app_font
+from factor_maker_ui import (
+	FactorMakerUI,
+	ProfileDialog,
+	load_app_stylesheet,
+	apply_app_font,
+	ProgressDialog,
+	GenerateWorker,
+)
 from engine import (
 	PersianFactor,
 	APP_ROOT,
@@ -54,6 +61,7 @@ class MainWindow(QMainWindow):
 		super().__init__()
 		self.setWindowTitle("فاکتور ساز متانویا")
 		self.setMinimumSize(1000, 720)
+		self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 
 		os.makedirs(OUTPUT_DIR, exist_ok=True)
 		os.makedirs(os.path.join(APP_ROOT, "templates"), exist_ok=True)
@@ -63,6 +71,8 @@ class MainWindow(QMainWindow):
 		self.ui = FactorMakerUI()
 		self.setCentralWidget(self.ui)
 		self._engine = PersianFactor(self.showMessage)
+		self._worker = None
+		self._progress_dialog = None
 
 		self.ui.generate_btn.clicked.connect(self.makeFactor)
 		self.ui.profile_changed.connect(self.on_profile_selected)
@@ -228,17 +238,50 @@ class MainWindow(QMainWindow):
 			"factor_disc_1": d.persianNumber(self.ui.desc1_input.toPlainText()),
 			"factor_disc_2": d.persianNumber(self.ui.desc2_input.toPlainText()),
 		}
-		ok = d.makeFactor(factor_id, TEMPLATE_PATH, datas, themes=themes)
-		if not ok:
-			return
 
-		# Remember last-used themes on the active profile
-		pid = self.ui.current_profile_id()
-		if pid:
-			current = profile_store.get_profile(pid)
-			if current:
-				current["preferred_themes"] = themes
-				profile_store.upsert_profile(current)
+		# Silent engine messages while progress dialog is open; show result after
+		self._pending_themes = themes
+		self._engine.msgShow = None
+		self.ui.generate_btn.setEnabled(False)
+
+		self._progress_dialog = ProgressDialog(self)
+		self._worker = GenerateWorker(
+			self._engine,
+			factor_id,
+			TEMPLATE_PATH,
+			datas,
+			themes,
+			parent=self,
+		)
+		self._worker.progress.connect(self._progress_dialog.update_progress)
+		self._worker.finished_ok.connect(self._on_generate_finished)
+		self._progress_dialog.show()
+		self._worker.start()
+
+	def _on_generate_finished(self, ok: bool):
+		themes = getattr(self, "_pending_themes", [])
+		if self._progress_dialog is not None:
+			self._progress_dialog.accept()
+			self._progress_dialog = None
+		self.ui.generate_btn.setEnabled(True)
+		self._engine.msgShow = self.showMessage
+
+		if self._worker is not None:
+			self._worker.wait(100)
+			self._worker.deleteLater()
+			self._worker = None
+
+		if ok:
+			theme_names = "، ".join(THEME_LABELS.get(t, t) for t in themes)
+			self.showMessage(f"فاکتور با موفقیت ساخته شد\nرنگ‌ها: {theme_names}")
+			pid = self.ui.current_profile_id()
+			if pid:
+				current = profile_store.get_profile(pid)
+				if current:
+					current["preferred_themes"] = themes
+					profile_store.upsert_profile(current)
+		else:
+			self.showMessage("خطا در تولید فاکتور. لطفا دوباره تلاش کنید.")
 
 
 def main():
