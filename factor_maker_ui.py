@@ -4,42 +4,80 @@ from PySide6.QtWidgets import (
 	QWidget, QLabel, QLineEdit, QTextEdit, QVBoxLayout, QHBoxLayout,
 	QTableWidget, QTableWidgetItem, QPushButton, QHeaderView, QDoubleSpinBox,
 	QScrollArea, QSizePolicy, QMessageBox, QFrame, QComboBox, QDialog,
-	QDialogButtonBox, QFormLayout, QCheckBox, QAbstractItemView,
+	QDialogButtonBox, QFormLayout, QCheckBox, QAbstractItemView, QGridLayout,
 )
+import os
 
-from engine import DEFAULT_THEMES, THEME_LABELS, image_map
+from engine import DEFAULT_THEMES, THEME_LABELS, image_map, FONT_PATH
+import engine as engine_mod
 
 MAX_ITEMS = 13
 
+THEME_OBJECT_NAMES = {
+	"blue": "ThemeBlue",
+	"cyan": "ThemeCyan",
+	"gray": "ThemeGray",
+	"red": "ThemeRed",
+}
 
-def load_app_stylesheet(app_root: str) -> str:
-	import os
-	path = os.path.join(app_root, "styles.qss")
+
+def load_app_stylesheet(app_root: str, dark: bool = False) -> str:
+	name = "styles_dark.qss" if dark else "styles.qss"
+	path = os.path.join(app_root, name)
 	try:
 		with open(path, "r", encoding="utf-8") as fh:
 			return fh.read()
 	except OSError:
+		# Fall back to light theme if dark file is missing
+		if dark:
+			return load_app_stylesheet(app_root, dark=False)
 		return ""
 
 
+def apply_app_font(app) -> str | None:
+	"""Load fonts/IRANSansXV.ttf for the UI (and invoice engine). Returns family name."""
+	family = None
+	if os.path.isfile(FONT_PATH):
+		font_id = QFontDatabase.addApplicationFont(FONT_PATH)
+		if font_id != -1:
+			families = QFontDatabase.applicationFontFamilies(font_id)
+			if families:
+				family = families[0]
+
+	if not family:
+		installed = set(QFontDatabase.families())
+		for candidate in ("IRANSansX", "IRANSansXV", "IRANSans", "Vazirmatn", "Vazir", "Tahoma"):
+			if candidate in installed:
+				family = candidate
+				break
+
+	if family:
+		app.setFont(QFont(family, 10))
+		engine_mod.INVOICE_FONT_NAME = family
+		return family
+
+	app.setFont(QFont("Tahoma", 10))
+	return None
+
+
 def try_set_vazir_font(app) -> None:
-	"""Use Vazir when installed; otherwise leave the Qt default."""
-	families = set(QFontDatabase.families())
-	for family in ("Vazirmatn", "Vazir", "Tahoma"):
-		if family in families or family == "Tahoma":
-			app.setFont(QFont(family))
-			return
+	"""Backward-compatible alias."""
+	apply_app_font(app)
 
 
 class ProfileDialog(QDialog):
 	def __init__(self, parent=None, profile: dict | None = None, is_new: bool = True):
 		super().__init__(parent)
 		self.setWindowTitle("پروفایل جدید" if is_new else "ویرایش پروفایل")
-		self.setMinimumWidth(420)
+		self.setMinimumWidth(440)
 		self._profile_id = (profile or {}).get("id") if profile and not is_new else None
 
 		layout = QVBoxLayout(self)
+		layout.setContentsMargins(16, 16, 16, 16)
+		layout.setSpacing(12)
 		form = QFormLayout()
+		form.setSpacing(10)
+		form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
 		self.name_input = QLineEdit((profile or {}).get("name", ""))
 		self.sby_input = QLineEdit((profile or {}).get("sby", ""))
@@ -69,6 +107,7 @@ class ProfileDialog(QDialog):
 		theme_row = QWidget()
 		theme_layout = QHBoxLayout(theme_row)
 		theme_layout.setContentsMargins(0, 0, 0, 0)
+		theme_layout.setSpacing(10)
 		for key in image_map:
 			cb = QCheckBox(THEME_LABELS.get(key, key))
 			cb.setChecked(key in preferred)
@@ -134,122 +173,170 @@ class FactorMakerUI(QWidget):
 		super().__init__()
 		self.setObjectName("FactorRoot")
 		self.setWindowTitle("FactorMaker")
-		self.setMinimumSize(980, 680)
+		self.setMinimumSize(1080, 720)
 		self.theme_buttons: dict[str, QPushButton] = {}
 		self._loading_profile = False
 		self.init_ui()
 
 	def init_ui(self):
 		root = QVBoxLayout(self)
-		root.setContentsMargins(14, 14, 14, 14)
+		root.setContentsMargins(16, 16, 16, 16)
 		root.setSpacing(12)
 
 		root.addWidget(self._build_header())
 
 		body_scroll = QScrollArea()
 		body_scroll.setWidgetResizable(True)
+		body_scroll.setFrameShape(QFrame.Shape.NoFrame)
 		body_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-		body = QWidget()
-		body_layout = QHBoxLayout(body)
-		body_layout.setContentsMargins(0, 0, 0, 0)
-		body_layout.setSpacing(12)
-		body_layout.addWidget(self._build_left_column(), stretch=2)
-		body_layout.addWidget(self._build_right_column(), stretch=3)
-		body_scroll.setWidget(body)
+		body_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+		card = QFrame()
+		card.setObjectName("ContentCard")
+		card_layout = QHBoxLayout(card)
+		card_layout.setContentsMargins(16, 16, 16, 16)
+		card_layout.setSpacing(0)
+
+		# In RTL, first added widget sits on the right.
+		card_layout.addWidget(self._build_meta_column(), stretch=5)
+		divider = QFrame()
+		divider.setObjectName("SoftDivider")
+		divider.setFrameShape(QFrame.Shape.NoFrame)
+		card_layout.addSpacing(14)
+		card_layout.addWidget(divider)
+		card_layout.addSpacing(14)
+		card_layout.addWidget(self._build_items_column(), stretch=7)
+
+		body_scroll.setWidget(card)
 		root.addWidget(body_scroll, stretch=1)
-
 		root.addWidget(self._build_footer())
-
 		self._wire_total_signals()
 
 	def _build_header(self) -> QFrame:
 		header = QFrame()
 		header.setObjectName("HeaderBar")
 		layout = QVBoxLayout(header)
-		layout.setSpacing(10)
+		layout.setContentsMargins(16, 14, 16, 14)
+		layout.setSpacing(12)
 
 		top = QHBoxLayout()
+		top.setSpacing(10)
+
 		self.brand_title = QLabel("فاکتور ساز متانویا")
 		self.brand_title.setObjectName("BrandTitle")
-		top.addWidget(self.brand_title)
-		top.addStretch()
+		top.addWidget(self.brand_title, alignment=Qt.AlignmentFlag.AlignVCenter)
+		top.addStretch(1)
+
+		profile_wrap = QFrame()
+		profile_wrap.setObjectName("SectionBox")
+		profile_row = QHBoxLayout(profile_wrap)
+		profile_row.setContentsMargins(0, 0, 0, 0)
+		profile_row.setSpacing(8)
 
 		profile_label = QLabel("پروفایل")
 		profile_label.setObjectName("FieldLabel")
 		self.profile_combo = QComboBox()
-		self.profile_combo.setMinimumWidth(180)
+		self.profile_combo.setMinimumWidth(170)
+		self.profile_combo.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 		self.profile_combo.currentIndexChanged.connect(self._on_profile_combo_changed)
 
 		self.profile_new_btn = QPushButton("جدید")
 		self.profile_edit_btn = QPushButton("ویرایش")
 		self.profile_delete_btn = QPushButton("حذف")
+		self.profile_new_btn.setObjectName("SecondaryButton")
+		self.profile_edit_btn.setObjectName("SecondaryButton")
 		self.profile_delete_btn.setObjectName("DangerButton")
 		self.profile_new_btn.clicked.connect(self.profile_new_requested.emit)
 		self.profile_edit_btn.clicked.connect(self.profile_edit_requested.emit)
 		self.profile_delete_btn.clicked.connect(self.profile_delete_requested.emit)
 
-		top.addWidget(profile_label)
-		top.addWidget(self.profile_combo)
-		top.addWidget(self.profile_new_btn)
-		top.addWidget(self.profile_edit_btn)
-		top.addWidget(self.profile_delete_btn)
+		profile_row.addWidget(profile_label)
+		profile_row.addWidget(self.profile_combo)
+		profile_row.addWidget(self.profile_new_btn)
+		profile_row.addWidget(self.profile_edit_btn)
+		profile_row.addWidget(self.profile_delete_btn)
+		top.addWidget(profile_wrap)
 		layout.addLayout(top)
 
 		theme_row = QHBoxLayout()
+		theme_row.setSpacing(8)
 		theme_label = QLabel("رنگ فاکتور")
 		theme_label.setObjectName("FieldLabel")
 		theme_row.addWidget(theme_label)
 		for key in image_map:
 			btn = QPushButton(THEME_LABELS.get(key, key))
-			btn.setObjectName("ThemeChip")
 			btn.setCheckable(True)
-			btn.setProperty("theme", key)
+			btn.setCursor(Qt.CursorShape.PointingHandCursor)
 			btn.setChecked(key in DEFAULT_THEMES)
-			btn.toggled.connect(self._on_theme_toggled)
+			btn.toggled.connect(lambda checked, k=key, b=btn: self._on_theme_button_toggled(b, k, checked))
 			self.theme_buttons[key] = btn
+			self._refresh_theme_chip_style(btn, key, btn.isChecked())
 			theme_row.addWidget(btn)
-		theme_row.addStretch()
+		theme_row.addStretch(1)
+		hint = QLabel("حداقل یک رنگ را انتخاب کنید")
+		hint.setObjectName("HintLabel")
+		theme_row.addWidget(hint)
 		layout.addLayout(theme_row)
 		return header
 
-	def _build_left_column(self) -> QFrame:
-		panel = QFrame()
-		panel.setObjectName("Panel")
-		layout = QVBoxLayout(panel)
-		layout.setSpacing(10)
+	def _refresh_theme_chip_style(self, btn: QPushButton, key: str, checked: bool):
+		btn.setObjectName(THEME_OBJECT_NAMES.get(key, "ThemeChip") if checked else "ThemeChip")
+		style = btn.style()
+		if style is not None:
+			style.unpolish(btn)
+			style.polish(btn)
+		btn.update()
 
+	def _build_meta_column(self) -> QWidget:
+		col = QWidget()
+		layout = QVBoxLayout(col)
+		layout.setContentsMargins(0, 0, 0, 0)
+		layout.setSpacing(14)
+
+		invoice_box = QFrame()
+		invoice_box.setObjectName("SectionBox")
+		invoice_layout = QVBoxLayout(invoice_box)
+		invoice_layout.setContentsMargins(0, 0, 0, 0)
+		invoice_layout.setSpacing(8)
 		invoice_title = QLabel("اطلاعات فاکتور")
 		invoice_title.setObjectName("SectionTitle")
-		layout.addWidget(invoice_title)
+		invoice_layout.addWidget(invoice_title)
 
 		self.id_input = QLineEdit()
 		self.date_input = QLineEdit()
 		self.addons_input = QLineEdit()
 		self.title_input = QLineEdit()
-		layout.addLayout(self._labeled_row(self.id_input, "آیدی"))
-		layout.addLayout(self._labeled_row(self.date_input, "تاریخ"))
-		layout.addLayout(self._labeled_row(self.title_input, "عنوان"))
-		layout.addLayout(self._labeled_row(self.addons_input, "افزونه‌ها"))
+		invoice_layout.addLayout(self._field_row(self.id_input, "آیدی"))
+		invoice_layout.addLayout(self._field_row(self.date_input, "تاریخ"))
+		invoice_layout.addLayout(self._field_row(self.title_input, "عنوان"))
+		invoice_layout.addLayout(self._field_row(self.addons_input, "افزونه‌ها"))
+		layout.addWidget(invoice_box)
 
+		seller_box = QFrame()
+		seller_box.setObjectName("SectionBox")
+		seller_layout = QVBoxLayout(seller_box)
+		seller_layout.setContentsMargins(0, 0, 0, 0)
+		seller_layout.setSpacing(8)
 		seller_title = QLabel("اطلاعات فروشنده")
 		seller_title.setObjectName("SectionTitle")
-		layout.addWidget(seller_title)
+		seller_layout.addWidget(seller_title)
 
 		self.from_input = QLineEdit()
 		self.phone_input = QLineEdit()
 		self.location_input = QTextEdit()
-		self.location_input.setFixedHeight(90)
-		layout.addLayout(self._labeled_row(self.from_input, "از"))
-		layout.addLayout(self._labeled_row(self.phone_input, "تلفن"))
-		layout.addLayout(self._labeled_row(self.location_input, "آدرس"))
+		self.location_input.setMinimumHeight(100)
+		self.location_input.setMaximumHeight(140)
+		seller_layout.addLayout(self._field_row(self.from_input, "از"))
+		seller_layout.addLayout(self._field_row(self.phone_input, "تلفن"))
+		seller_layout.addLayout(self._field_row(self.location_input, "آدرس"))
+		layout.addWidget(seller_box)
+		layout.addStretch(1)
+		return col
 
-		layout.addStretch()
-		return panel
-
-	def _build_right_column(self) -> QFrame:
-		panel = QFrame()
-		panel.setObjectName("Panel")
-		layout = QVBoxLayout(panel)
+	def _build_items_column(self) -> QWidget:
+		col = QWidget()
+		layout = QVBoxLayout(col)
+		layout.setContentsMargins(0, 0, 0, 0)
 		layout.setSpacing(10)
 
 		items_title = QLabel("آیتم‌ها")
@@ -258,27 +345,34 @@ class FactorMakerUI(QWidget):
 
 		self.items_table = QTableWidget(0, 4)
 		self.items_table.setHorizontalHeaderLabels(["عملیات", "قیمت (ریال)", "تعداد", "نام"])
+		self.items_table.setAlternatingRowColors(True)
 		self.items_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # type: ignore
 		self.items_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)  # type: ignore
 		self.items_table.verticalHeader().setVisible(False)
 		self.items_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-		self.items_table.setMinimumHeight(260)
+		self.items_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+		self.items_table.setShowGrid(True)
+		self.items_table.setMinimumHeight(280)
 		self.items_table.itemChanged.connect(self._on_table_item_changed)
-		layout.addWidget(self.items_table)
+		layout.addWidget(self.items_table, stretch=1)
 
-		self.add_item_btn = QPushButton("افزودن آیتم")
+		self.add_item_btn = QPushButton("＋  افزودن آیتم")
+		self.add_item_btn.setObjectName("AddItemButton")
+		self.add_item_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 		self.add_item_btn.clicked.connect(self.add_item_row)
 		layout.addWidget(self.add_item_btn)
 
-		rates = QHBoxLayout()
+		rates = QGridLayout()
+		rates.setHorizontalSpacing(12)
+		rates.setVerticalSpacing(6)
 		self.off_input = QDoubleSpinBox()
 		self.tax_input = QDoubleSpinBox()
 		self.off_input.setRange(0, 100)
 		self.tax_input.setRange(0, 100)
 		self.off_input.setSuffix(" %")
 		self.tax_input.setSuffix(" %")
-		rates.addLayout(self._labeled_row(self.off_input, "تخفیف"))
-		rates.addLayout(self._labeled_row(self.tax_input, "مالیات"))
+		rates.addLayout(self._field_row(self.off_input, "تخفیف"), 0, 0)
+		rates.addLayout(self._field_row(self.tax_input, "مالیات"), 0, 1)
 		layout.addLayout(rates)
 
 		notes_title = QLabel("توضیحات")
@@ -287,36 +381,41 @@ class FactorMakerUI(QWidget):
 
 		self.desc1_input = QTextEdit()
 		self.desc2_input = QTextEdit()
-		self.desc1_input.setFixedHeight(56)
-		self.desc2_input.setFixedHeight(56)
-		layout.addLayout(self._labeled_row(self.desc1_input, "توضیحات ۱"))
-		layout.addLayout(self._labeled_row(self.desc2_input, "توضیحات ۲"))
-		return panel
+		self.desc1_input.setFixedHeight(58)
+		self.desc2_input.setFixedHeight(58)
+		layout.addLayout(self._field_row(self.desc1_input, "توضیحات ۱"))
+		layout.addLayout(self._field_row(self.desc2_input, "توضیحات ۲"))
+		return col
 
 	def _build_footer(self) -> QFrame:
 		footer = QFrame()
 		footer.setObjectName("FooterBar")
 		layout = QHBoxLayout(footer)
+		layout.setContentsMargins(16, 12, 16, 12)
+		layout.setSpacing(12)
 
 		self.total_label = QLabel("جمع کل: ۰ ریال")
 		self.total_label.setObjectName("TotalLabel")
 		layout.addWidget(self.total_label)
-		layout.addStretch()
+		layout.addStretch(1)
 
 		self.generate_btn = QPushButton("تولید فاکتور")
 		self.generate_btn.setObjectName("PrimaryButton")
+		self.generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 		self.generate_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 		layout.addWidget(self.generate_btn)
 		return footer
 
-	def _labeled_row(self, widget: QWidget, label_text: str) -> QHBoxLayout:
+	def _field_row(self, widget: QWidget, label_text: str) -> QHBoxLayout:
 		row = QHBoxLayout()
-		row.setSpacing(8)
+		row.setContentsMargins(0, 0, 0, 0)
+		row.setSpacing(10)
 		label = QLabel(label_text)
 		label.setObjectName("FieldLabel")
 		label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+		# In RTL: widget first (expands leftward), label on the right edge.
 		row.addWidget(widget, stretch=1)
-		row.addWidget(label)
+		row.addWidget(label, stretch=0)
 		return row
 
 	def _wire_total_signals(self):
@@ -327,15 +426,12 @@ class FactorMakerUI(QWidget):
 		if not self._loading_profile:
 			self.total_inputs_changed.emit()
 
-	def _on_theme_toggled(self, checked: bool):
-		sender = self.sender()
-		if checked or self.selected_themes():
-			return
-		# Keep at least one theme selected
-		if isinstance(sender, QPushButton):
-			sender.blockSignals(True)
-			sender.setChecked(True)
-			sender.blockSignals(False)
+	def _on_theme_button_toggled(self, btn: QPushButton, key: str, checked: bool):
+		if not checked and not self.selected_themes():
+			btn.blockSignals(True)
+			btn.setChecked(True)
+			btn.blockSignals(False)
+		self._refresh_theme_chip_style(btn, key, btn.isChecked())
 
 	def _on_profile_combo_changed(self, _index: int):
 		if self._loading_profile:
@@ -344,10 +440,9 @@ class FactorMakerUI(QWidget):
 		if pid:
 			self.profile_changed.emit(str(pid))
 
-	# --- Public helpers used by MainWindow ---
-
 	def set_profiles(self, profiles: list[dict], selected_id: str | None = None):
 		self._loading_profile = True
+		self.profile_combo.blockSignals(True)
 		self.profile_combo.clear()
 		selected_index = 0
 		for i, profile in enumerate(profiles):
@@ -359,6 +454,7 @@ class FactorMakerUI(QWidget):
 				selected_index = i
 		if profiles:
 			self.profile_combo.setCurrentIndex(selected_index)
+		self.profile_combo.blockSignals(False)
 		self._loading_profile = False
 
 	def current_profile_id(self) -> str | None:
@@ -387,13 +483,16 @@ class FactorMakerUI(QWidget):
 		for key, btn in self.theme_buttons.items():
 			btn.blockSignals(True)
 			btn.setChecked(key in wanted)
+			self._refresh_theme_chip_style(btn, key, btn.isChecked())
 			btn.blockSignals(False)
 		if not self.selected_themes():
 			for key in DEFAULT_THEMES:
 				if key in self.theme_buttons:
-					self.theme_buttons[key].blockSignals(True)
-					self.theme_buttons[key].setChecked(True)
-					self.theme_buttons[key].blockSignals(False)
+					btn = self.theme_buttons[key]
+					btn.blockSignals(True)
+					btn.setChecked(True)
+					self._refresh_theme_chip_style(btn, key, True)
+					btn.blockSignals(False)
 
 	def set_total_text(self, text: str):
 		self.total_label.setText(text)
@@ -454,7 +553,8 @@ class FactorMakerUI(QWidget):
 	def _set_delete_button(self, row: int):
 		btn = QPushButton("حذف")
 		btn.setObjectName("RowDeleteButton")
-		btn.clicked.connect(lambda *_ , r=row: self._delete_row_by_button(btn))
+		btn.setCursor(Qt.CursorShape.PointingHandCursor)
+		btn.clicked.connect(lambda *_: self._delete_row_by_button(btn))
 		self.items_table.setCellWidget(row, 0, btn)
 
 	def _delete_row_by_button(self, button: QPushButton):

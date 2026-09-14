@@ -89,12 +89,21 @@ def _ensure_store() -> dict[str, Any]:
 
 
 def _normalize_profile(raw: dict[str, Any]) -> dict[str, Any]:
+	from engine import image_map
+
 	themes = raw.get("preferred_themes") or list(DEFAULT_THEMES)
 	if not isinstance(themes, list) or not themes:
 		themes = list(DEFAULT_THEMES)
-	themes = [t for t in themes if isinstance(t, str)]
-	if not themes:
-		themes = list(DEFAULT_THEMES)
+	# Migrate removed theme keys
+	migrated = []
+	for t in themes:
+		if not isinstance(t, str):
+			continue
+		if t == "green":
+			t = "cyan"
+		if t in image_map and t not in migrated:
+			migrated.append(t)
+	themes = migrated or list(DEFAULT_THEMES)
 
 	try:
 		off = float(raw.get("off", 0) or 0)

@@ -1,10 +1,11 @@
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 import sys
 import os
 import jdatetime
 
-from factor_maker_ui import FactorMakerUI, ProfileDialog, load_app_stylesheet, try_set_vazir_font
+from factor_maker_ui import FactorMakerUI, ProfileDialog, load_app_stylesheet, apply_app_font
 from engine import (
 	PersianFactor,
 	APP_ROOT,
@@ -37,6 +38,17 @@ def required_asset_errors(themes: list[str] | None = None):
 	return missing
 
 
+def is_system_dark() -> bool:
+	scheme = QGuiApplication.styleHints().colorScheme()
+	return scheme == Qt.ColorScheme.Dark
+
+
+def apply_system_stylesheet(app: QApplication) -> None:
+	stylesheet = load_app_stylesheet(APP_ROOT, dark=is_system_dark())
+	if stylesheet:
+		app.setStyleSheet(stylesheet)
+
+
 class MainWindow(QMainWindow):
 	def __init__(self):
 		super().__init__()
@@ -66,7 +78,7 @@ class MainWindow(QMainWindow):
 		self.reload_profiles()
 		self.update_total_preview()
 
-		# Soft warning for default themes only (red/green optional)
+		# Soft warning for default themes only (cyan/red optional)
 		missing = required_asset_errors(list(DEFAULT_THEMES))
 		if missing:
 			listed = "\n".join(missing)
@@ -231,11 +243,15 @@ class MainWindow(QMainWindow):
 
 def main():
 	app = QApplication(sys.argv)
+	app.setStyle("Fusion")
 	app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
-	try_set_vazir_font(app)
-	stylesheet = load_app_stylesheet(APP_ROOT)
-	if stylesheet:
-		app.setStyleSheet(stylesheet)
+	apply_app_font(app)
+	apply_system_stylesheet(app)
+
+	# Follow OS light/dark changes live
+	QGuiApplication.styleHints().colorSchemeChanged.connect(
+		lambda *_: apply_system_stylesheet(app)
+	)
 
 	window = MainWindow()
 	window.show()

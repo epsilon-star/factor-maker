@@ -41,23 +41,69 @@ def_params = {
 
 image_map = {
 	"blue": "template-1",
-	"gray": "template-gray",
+	"cyan": "template-2",
 	"red": "template-3",
-	"green": "template-green",
+	"gray": "template-gray",
 }
 
 DEFAULT_THEMES = ["blue", "gray"]
 THEME_LABELS = {
 	"blue": "آبی",
-	"gray": "خاکستری",
+	"cyan": "فیروزه‌ای",
 	"red": "قرمز",
-	"green": "سبز",
+	"gray": "خاکستری",
 }
 
+# Filled at runtime from fonts/IRANSansXV.ttf when available
+INVOICE_FONT_NAME = "IRANSansX"
+FONT_PATH = os.path.join(APP_ROOT, "fonts", "IRANSansXV.ttf")
+
+
 class PersianFactor:
-	def __init__(self,msgShow = None):
+	def __init__(self, msgShow=None):
 		self.msgShow = msgShow
-		pass
+
+	def _style_paragraph(self, paragraph, size: int = 7):
+		font_name = INVOICE_FONT_NAME
+		for run in paragraph.runs:
+			run.font.size = Pt(size)
+			run.font.name = font_name
+			self._set_run_font_eastasia(run, font_name)
+		# Also set on paragraph style when possible
+		try:
+			paragraph.style.font.size = Pt(size)  # type: ignore
+			paragraph.style.font.name = font_name  # type: ignore
+		except Exception:
+			pass
+
+	@staticmethod
+	def _set_run_font_eastasia(run, font_name: str):
+		from docx.oxml.ns import qn
+		r = run._element
+		rPr = r.get_or_add_rPr()
+		rFonts = rPr.get_or_add_rFonts()
+		rFonts.set(qn("w:ascii"), font_name)
+		rFonts.set(qn("w:hAnsi"), font_name)
+		rFonts.set(qn("w:cs"), font_name)
+		rFonts.set(qn("w:eastAsia"), font_name)
+
+	def _apply_font_to_document(self, doc):
+		font_name = INVOICE_FONT_NAME
+		for paragraph in doc.paragraphs:
+			for run in paragraph.runs:
+				run.font.name = font_name
+				self._set_run_font_eastasia(run, font_name)
+		for table in doc.tables:
+			try:
+				table.style.font.name = font_name  # type: ignore
+			except Exception:
+				pass
+			for row in table.rows:
+				for cell in row.cells:
+					for paragraph in cell.paragraphs:
+						for run in paragraph.runs:
+							run.font.name = font_name
+							self._set_run_font_eastasia(run, font_name)
 
 	def makeFactor(self, ids: int, template_path: str, datas: dict, themes: list | None = None) -> bool:
 		"""Make an invoice using templates for the selected color themes."""
@@ -85,22 +131,22 @@ class PersianFactor:
 				res = dtab.cell(idx, 3)
 				res.text = x
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-				res.paragraphs[0].style.font.size = Pt(7)  # type: ignore
+				self._style_paragraph(res.paragraphs[0], size=7)
 				res = dtab.cell(idx, 2)
 				res.text = self.persianNumber(str(buffer['items'][x][0]))  # type: ignore
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-				res.paragraphs[0].style.font.size = Pt(7)  # type: ignore
+				self._style_paragraph(res.paragraphs[0], size=7)
 				res = dtab.cell(idx, 1)
 				res.text = self.formatNumber(str(buffer['items'][x][1]))  # type: ignore
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-				res.paragraphs[0].style.font.size = Pt(7)  # type: ignore
+				self._style_paragraph(res.paragraphs[0], size=7)
 				res = dtab.cell(idx, 0)
 				res.text = self.formatNumber(str(round(buffer['items'][x][1] * buffer['items'][x][0])))  # type: ignore
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-				res.paragraphs[0].style.font.size = Pt(7)  # type: ignore
+				self._style_paragraph(res.paragraphs[0], size=7)
 				idx += 1
-			for x in doc.tables:
-				x.style.font.name = "Vazir"  # type: ignore
+
+			self._apply_font_to_document(doc)
 
 			idx_dir = os.path.join(OUTPUT_DIR, str(ids))
 			os.makedirs(idx_dir, exist_ok=True)
@@ -117,6 +163,10 @@ class PersianFactor:
 				tpl.replace_pic("background_image", image_path)
 				tpl.render(buffer)
 				tpl.save(output_path)
+				# Re-open and force invoice font on rendered content
+				rendered = docx.Document(output_path)
+				self._apply_font_to_document(rendered)
+				rendered.save(output_path)
 				self.getPDF(output_path)
 				generated.append(theme_name)
 
