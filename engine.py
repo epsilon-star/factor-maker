@@ -1,17 +1,14 @@
 import docx
-from docx.enum.table import * # type:ignore
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
-from docx.oxml import parse_xml
-from docx.oxml.ns import nsdecls
 import docxtpl
 from docx2pdf import convert
 import os
+import shutil
 
-def argumentChecker(src_list:list,des_list:list):
-	for x in des_list:
-		if not x in src_list: return False
-	return True
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(APP_ROOT, "output")
+IMAGES_DIR = os.path.join(APP_ROOT, "images")
 
 persian_numbers = {
 	0: "صفر", 1: "یک", 2: "دو", 3: "سه", 4: "چهار", 5: "پنج", 6: "شش", 7: "هفت", 8: "هشت", 9: "نه",
@@ -25,18 +22,6 @@ powers_of_thousand = [
 	(1000000, "میلیون"),      # Million
 	(1000, "هزار"),           # Thousand
 ]
-
-def_argument = {
-	"makeFactor": {
-		"datas": [
-			"factor_id",
-			"factor_date",
-			"factor_addons",
-			"title",'sby','phone','location',
-			''
-		]
-	}
-}
 
 def_params = {
 	"factor_id":"",
@@ -71,17 +56,11 @@ class PersianFactor:
 		""" Make An Factor Using Templates """
 
 		try:
-			# output_path = f"output/{ids}.docx"
-
-			# if not argumentChecker(list(datas.keys()),def_argument['makeFactor']['datas']): return False
 			buffer = def_params.copy()
 			buffer.update(datas)
 			totalPrice = self.calculateTotal(list(buffer['items'].values()),datas['tax'],datas['off']) # type: ignore
 			buffer['factor_price_name'] = self.convertWord(totalPrice) + " ریال" 
 			buffer['factor_price_number'] = self.formatNumber(str(totalPrice))
-			
-			# print(buffer['factor_price_name'])
-			# print(buffer['factor_price_number'])
 
 			# PHASE 1
 			doc = docx.Document(template_path)
@@ -110,17 +89,26 @@ class PersianFactor:
 			for x in doc.tables:
 				x.style.font.name = "Vazir" # type: ignore
 
-			idx_dir = f"output/{ids}"
-			if not os.path.exists(idx_dir): os.mkdir(idx_dir)
-			for x in image_map:
-				output_path = f"output/{ids}/{ids}-{x}.docx"
+			idx_dir = os.path.join(OUTPUT_DIR, str(ids))
+			os.makedirs(idx_dir, exist_ok=True)
+			base_path = os.path.join(idx_dir, f"{ids}-base.docx")
+			doc.save(base_path)
+
+			for theme_name, image_name in image_map.items():
+				output_path = os.path.join(idx_dir, f"{ids}-{theme_name}.docx")
+				image_path = os.path.join(IMAGES_DIR, f"{image_name}.jpg")
 				print(output_path)
-				doc.save(output_path)
-				doc = docxtpl.DocxTemplate(output_path)
-				doc.replace_pic("background_image",f"images/{image_map[x]}.jpg")
-				doc.render(buffer)
-				doc.save(output_path)
+				shutil.copyfile(base_path, output_path)
+				tpl = docxtpl.DocxTemplate(output_path)
+				tpl.replace_pic("background_image", image_path)
+				tpl.render(buffer)
+				tpl.save(output_path)
 				self.getPDF(output_path)
+
+			try:
+				os.remove(base_path)
+			except OSError:
+				pass
 
 			if self.msgShow: self.msgShow(f"فاکتور با آیدی [{ids}] ساخته شد")
 		except Exception as EXP:

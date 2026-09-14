@@ -1,3 +1,21 @@
+# Python
 __pycache__/
 output/
 *.pyc
+
+# Virtual Environments
+.venv/
+.venv
+
+# temp folders
+temp/
+temp
+
+
+# agents
+.cursor/
+.cursor
+.agents/
+.agents
+.codex/
+.codex

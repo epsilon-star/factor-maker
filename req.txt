@@ -1,4 +1,5 @@
-docx
+python-docx
 docxtpl
 docx2pdf
-customtkinter
+PySide6
+jdatetime
