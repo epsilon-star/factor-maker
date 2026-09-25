@@ -8,6 +8,7 @@ import jdatetime
 from factor_maker_ui import (
 	FactorMakerUI,
 	ProfileDialog,
+	FactorListDialog,
 	load_app_stylesheet,
 	apply_app_font,
 	ProgressDialog,
@@ -21,6 +22,7 @@ from engine import (
 	THEME_LABELS,
 )
 import profiles as profile_store
+import factor_store
 
 TEMPLATE_PATH = os.path.join(APP_ROOT, "templates", "template.docx")
 OUTPUT_DIR = os.path.join(APP_ROOT, "output")
@@ -67,25 +69,28 @@ class MainWindow(QMainWindow):
 		os.makedirs(os.path.join(APP_ROOT, "templates"), exist_ok=True)
 		os.makedirs(IMAGES_DIR, exist_ok=True)
 		os.makedirs(os.path.join(APP_ROOT, "profiles"), exist_ok=True)
+		os.makedirs(os.path.join(APP_ROOT, "data"), exist_ok=True)
+		factor_store.init_db()
 
 		self.ui = FactorMakerUI()
 		self.setCentralWidget(self.ui)
 		self._engine = PersianFactor(self.showMessage)
 		self._worker = None
 		self._progress_dialog = None
+		self._editing_factor_id = None
 
 		self.ui.generate_btn.clicked.connect(self.makeFactor)
+		self.ui.save_requested.connect(self.save_factor)
+		self.ui.open_list_requested.connect(self.open_factor_list)
+		self.ui.new_factor_requested.connect(self.new_factor)
 		self.ui.profile_changed.connect(self.on_profile_selected)
 		self.ui.profile_new_requested.connect(self.on_profile_new)
 		self.ui.profile_edit_requested.connect(self.on_profile_edit)
 		self.ui.profile_delete_requested.connect(self.on_profile_delete)
 		self.ui.total_inputs_changed.connect(self.update_total_preview)
 
-		tt = jdatetime.datetime.now()
-		self.ui.id_input.setText(str(tt.year)[1:] + "00" + "000")
-		self.ui.date_input.setText(tt.strftime("%Y/%m/%d"))
-
 		self.reload_profiles()
+		self.new_factor(initial=True)
 		self.update_total_preview()
 
 		# Soft warning for default themes only (cyan/red optional)
@@ -103,6 +108,29 @@ class MainWindow(QMainWindow):
 		msg_box.setWindowTitle("پیام")
 		msg_box.setText(message)
 		msg_box.exec()
+
+	def _default_factor_id_seed(self) -> int:
+		tt = jdatetime.datetime.now()
+		return int(str(tt.year)[1:] + "00" + "000")
+
+	def new_factor(self, initial: bool = False):
+		"""Start a blank invoice with the next free ID."""
+		if not initial:
+			# Keep seller side from current profile; clear invoice body
+			pass
+		seed = self._default_factor_id_seed()
+		free_id = factor_store.next_available_id(seed)
+		tt = jdatetime.datetime.now()
+		self._editing_factor_id = None
+		self.ui.id_input.setText(str(free_id))
+		self.ui.date_input.setText(tt.strftime("%Y/%m/%d"))
+		self.ui.title_input.clear()
+		self.ui.addons_input.clear()
+		self.ui.clear_items()
+		# Re-apply active profile seller defaults
+		active = profile_store.get_active_profile()
+		self.ui.apply_profile(active)
+		self.update_total_preview()
 
 	def reload_profiles(self, prefer_id: str | None = None):
 		store = profile_store.load_store()
@@ -181,6 +209,64 @@ class MainWindow(QMainWindow):
 		formatted = self._engine.formatNumber(str(total))
 		self.ui.set_total_text(f"جمع کل: {formatted} ریال")
 
+	def _snapshot_for_store(self) -> dict | None:
+		snap = self.ui.collect_form_snapshot()
+		if snap.get("factor_id") is None:
+			self.showMessage("آیدی باید عدد باشد")
+			return None
+		return snap
+
+	def save_factor(self):
+		snap = self._snapshot_for_store()
+		if not snap:
+			return
+		factor_id = int(snap["factor_id"])
+		occupied = factor_store.id_exists(factor_id)
+		editing_same = self._editing_factor_id == factor_id
+		if occupied and not editing_same:
+			choice = QMessageBox.question(
+				self,
+				"آیدی اشغال است",
+				f"آیدی {factor_id} قبلا ذخیره شده.\nروی همان رکورد بازنویسی شود؟",
+				QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			)
+			if choice != QMessageBox.StandardButton.Yes:
+				return
+
+		existing = factor_store.get_factor(factor_id)
+		status = (existing or {}).get("status") or "draft"
+		saved = factor_store.upsert_factor(snap, status=status)
+		self._editing_factor_id = int(saved["factor_id"])
+		self.showMessage(f"فاکتور با آیدی {factor_id} ذخیره شد")
+
+	def open_factor_list(self):
+		factors = factor_store.list_factors()
+		if not factors:
+			self.showMessage("هنوز فاکتوری ذخیره نشده است")
+			return
+		dialog = FactorListDialog(self, factors)
+		if dialog.exec() != FactorListDialog.DialogCode.Accepted:
+			return
+		action, factor_id = dialog.result_action()
+		if factor_id is None:
+			return
+		if action == "delete":
+			if factor_store.delete_factor(factor_id):
+				if self._editing_factor_id == factor_id:
+					self.new_factor()
+				self.showMessage(f"فاکتور {factor_id} حذف شد")
+			else:
+				self.showMessage("حذف فاکتور ممکن نشد")
+			return
+		if action == "load":
+			data = factor_store.get_factor(factor_id)
+			if not data:
+				self.showMessage("فاکتور پیدا نشد")
+				return
+			self.ui.apply_factor_snapshot(data)
+			self._editing_factor_id = factor_id
+			self.update_total_preview()
+
 	def makeFactor(self):
 		themes = self.ui.selected_themes()
 		if not themes:
@@ -223,6 +309,18 @@ class MainWindow(QMainWindow):
 			self.showMessage("آیدی باید عدد باشد")
 			return
 
+		# ID occupancy: allow overwrite only with confirmation unless editing same record
+		if factor_store.id_exists(factor_id) and self._editing_factor_id != factor_id:
+			choice = QMessageBox.question(
+				self,
+				"آیدی اشغال است",
+				f"آیدی {factor_id} قبلا استفاده شده.\nادامه و بازنویسی؟\n\n"
+				f"پیشنهاد آیدی آزاد: {factor_store.next_available_id(factor_id)}",
+				QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			)
+			if choice != QMessageBox.StandardButton.Yes:
+				return
+
 		d = self._engine
 		datas = {
 			"factor_id": d.persianNumber(self.ui.id_input.text()),
@@ -239,10 +337,18 @@ class MainWindow(QMainWindow):
 			"factor_disc_2": d.persianNumber(self.ui.desc2_input.toPlainText()),
 		}
 
+		# Persist draft/generated snapshot before/alongside generate
+		snap = self.ui.collect_form_snapshot()
+		snap["factor_id"] = factor_id
+		factor_store.upsert_factor(snap, status="draft")
+		self._editing_factor_id = factor_id
+
 		# Silent engine messages while progress dialog is open; show result after
 		self._pending_themes = themes
+		self._pending_factor_id = factor_id
 		self._engine.msgShow = None
 		self.ui.generate_btn.setEnabled(False)
+		self.ui.save_btn.setEnabled(False)
 
 		self._progress_dialog = ProgressDialog(self)
 		self._worker = GenerateWorker(
@@ -260,10 +366,12 @@ class MainWindow(QMainWindow):
 
 	def _on_generate_finished(self, ok: bool):
 		themes = getattr(self, "_pending_themes", [])
+		factor_id = getattr(self, "_pending_factor_id", None)
 		if self._progress_dialog is not None:
 			self._progress_dialog.accept()
 			self._progress_dialog = None
 		self.ui.generate_btn.setEnabled(True)
+		self.ui.save_btn.setEnabled(True)
 		self._engine.msgShow = self.showMessage
 
 		if self._worker is not None:
@@ -272,6 +380,11 @@ class MainWindow(QMainWindow):
 			self._worker = None
 
 		if ok:
+			if factor_id is not None:
+				snap = self.ui.collect_form_snapshot()
+				snap["factor_id"] = factor_id
+				factor_store.upsert_factor(snap, status="generated")
+				self._editing_factor_id = factor_id
 			theme_names = "، ".join(THEME_LABELS.get(t, t) for t in themes)
 			self.showMessage(f"فاکتور با موفقیت ساخته شد\nرنگ‌ها: {theme_names}")
 			pid = self.ui.current_profile_id()

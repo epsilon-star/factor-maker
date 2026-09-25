@@ -127,6 +127,112 @@ def force_layout_right(layout) -> None:
 	layout.setAlignment(ALIGN_RIGHT)
 
 
+class FactorListDialog(QDialog):
+	"""Pick a saved factor to load or delete."""
+
+	def __init__(self, parent=None, factors: list[dict] | None = None):
+		super().__init__(parent)
+		self.setWindowTitle("فاکتورهای ذخیره‌شده")
+		self.setMinimumSize(560, 360)
+		self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+		self._selected_id: int | None = None
+		self._factors = factors or []
+
+		layout = QVBoxLayout(self)
+		layout.setContentsMargins(16, 16, 16, 16)
+		layout.setSpacing(12)
+
+		hint = style_label(QLabel("یک فاکتور را انتخاب کنید"))
+		hint.setObjectName("HintLabel")
+		layout.addWidget(hint, alignment=ALIGN_RIGHT)
+
+		self.table = QTableWidget(0, 4)
+		self.table.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+		self.table.setHorizontalHeaderLabels(["آیدی", "تاریخ", "عنوان", "وضعیت"])
+		self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # type: ignore
+		self.table.horizontalHeader().setDefaultAlignment(ALIGN_RIGHT)
+		self.table.verticalHeader().setVisible(False)
+		self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+		self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+		self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+		self.table.doubleClicked.connect(self._accept_load)
+		layout.addWidget(self.table, stretch=1)
+
+		status_map = {"draft": "پیش‌نویس", "generated": "تولیدشده"}
+		for factor in self._factors:
+			row = self.table.rowCount()
+			self.table.insertRow(row)
+			values = [
+				str(factor.get("factor_id", "")),
+				str(factor.get("factor_date", "")),
+				str(factor.get("title", "")),
+				status_map.get(str(factor.get("status", "")), str(factor.get("status", ""))),
+			]
+			for col, text in enumerate(values):
+				item = QTableWidgetItem(text)
+				item.setTextAlignment(int(ALIGN_RIGHT))
+				self.table.setItem(row, col, item)
+
+		buttons = QHBoxLayout()
+		self.load_btn = QPushButton("بارگذاری")
+		self.load_btn.setObjectName("PrimaryButton")
+		self.delete_btn = QPushButton("حذف")
+		self.delete_btn.setObjectName("DangerButton")
+		self.cancel_btn = QPushButton("انصراف")
+		self.cancel_btn.setObjectName("SecondaryButton")
+		self.load_btn.clicked.connect(self._accept_load)
+		self.delete_btn.clicked.connect(self._accept_delete)
+		self.cancel_btn.clicked.connect(self.reject)
+		buttons.addWidget(self.cancel_btn)
+		buttons.addStretch(1)
+		buttons.addWidget(self.delete_btn)
+		buttons.addWidget(self.load_btn)
+		layout.addLayout(buttons)
+
+		self._action = None  # "load" | "delete"
+
+	def _current_factor_id(self) -> int | None:
+		rows = self.table.selectionModel().selectedRows()
+		if not rows:
+			return None
+		item = self.table.item(rows[0].row(), 0)
+		if not item:
+			return None
+		try:
+			return int(item.text())
+		except ValueError:
+			return None
+
+	def _accept_load(self):
+		fid = self._current_factor_id()
+		if fid is None:
+			QMessageBox.information(self, "پیام", "لطفا یک فاکتور را انتخاب کنید")
+			return
+		self._selected_id = fid
+		self._action = "load"
+		self.accept()
+
+	def _accept_delete(self):
+		fid = self._current_factor_id()
+		if fid is None:
+			QMessageBox.information(self, "پیام", "لطفا یک فاکتور را انتخاب کنید")
+			return
+		confirm = QMessageBox.question(
+			self,
+			"حذف فاکتور",
+			f"فاکتور با آیدی {fid} حذف شود؟",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+		)
+		if confirm != QMessageBox.StandardButton.Yes:
+			return
+		self._selected_id = fid
+		self._action = "delete"
+		self.accept()
+
+	def result_action(self) -> tuple[str | None, int | None]:
+		return self._action, self._selected_id
+
+
 class ProgressDialog(QDialog):
 	"""Modal progress window shown while generating invoices."""
 
@@ -306,6 +412,9 @@ class FactorMakerUI(QWidget):
 	profile_edit_requested = Signal()
 	profile_delete_requested = Signal()
 	total_inputs_changed = Signal()
+	save_requested = Signal()
+	open_list_requested = Signal()
+	new_factor_requested = Signal()
 
 	def __init__(self):
 		super().__init__()
@@ -487,15 +596,17 @@ class FactorMakerUI(QWidget):
 		items_title = style_label(QLabel("آیتم‌ها"), title=True)
 		layout.addWidget(items_title, alignment=ALIGN_RIGHT)
 
-		self.items_table = QTableWidget(0, 4)
-		# LTR column order so indexes match the screen left→right:
-		# عملیات | قیمت | تعداد | نام  (نام on the far right)
+		# LTR columns left→right: عملیات | رایگان | قیمت | تعداد | نام
+		self.items_table = QTableWidget(0, 5)
 		self.items_table.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-		self.items_table.setHorizontalHeaderLabels(["عملیات", "قیمت (ریال)", "تعداد", "نام"])
+		self.items_table.setHorizontalHeaderLabels(
+			["عملیات", "رایگان", "قیمت (ریال)", "تعداد", "نام"]
+		)
 		self.items_table.setAlternatingRowColors(True)
 		header = self.items_table.horizontalHeader()
 		header.setSectionResizeMode(QHeaderView.Stretch)  # type: ignore
 		header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # type: ignore
+		header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # type: ignore
 		header.setDefaultAlignment(ALIGN_RIGHT)
 		header.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 		self.items_table.verticalHeader().setVisible(False)
@@ -550,10 +661,29 @@ class FactorMakerUI(QWidget):
 		layout.addWidget(self.total_label, alignment=ALIGN_RIGHT)
 		layout.addStretch(1)
 
+		self.new_factor_btn = QPushButton("فاکتور جدید")
+		self.new_factor_btn.setObjectName("SecondaryButton")
+		self.new_factor_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+		self.new_factor_btn.clicked.connect(self.new_factor_requested.emit)
+
+		self.open_list_btn = QPushButton("باز کردن")
+		self.open_list_btn.setObjectName("SecondaryButton")
+		self.open_list_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+		self.open_list_btn.clicked.connect(self.open_list_requested.emit)
+
+		self.save_btn = QPushButton("ذخیره")
+		self.save_btn.setObjectName("SecondaryButton")
+		self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+		self.save_btn.clicked.connect(self.save_requested.emit)
+
 		self.generate_btn = QPushButton("تولید فاکتور")
 		self.generate_btn.setObjectName("PrimaryButton")
 		self.generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 		self.generate_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+		layout.addWidget(self.new_factor_btn)
+		layout.addWidget(self.open_list_btn)
+		layout.addWidget(self.save_btn)
 		layout.addWidget(self.generate_btn)
 		return footer
 
@@ -654,9 +784,9 @@ class FactorMakerUI(QWidget):
 		self.total_label.setText(text)
 
 	def get_table_items(self):
-		"""Parse table rows into {name: [count, price]}.
+		"""Parse table rows into {name: [count, price, is_free]}.
 
-		Columns: 0=عملیات, 1=قیمت, 2=تعداد, 3=نام
+		Columns: 0=عملیات, 1=رایگان, 2=قیمت, 3=تعداد, 4=نام
 		Returns (items, error_message). On success error_message is None.
 		"""
 		items = {}
@@ -665,12 +795,13 @@ class FactorMakerUI(QWidget):
 			return None, "لطفا حداقل یک آیتم اضافه کنید"
 
 		for row in range(row_count):
-			price_item = self.items_table.item(row, 1)
-			count_item = self.items_table.item(row, 2)
-			name_item = self.items_table.item(row, 3)
+			price_item = self.items_table.item(row, 2)
+			count_item = self.items_table.item(row, 3)
+			name_item = self.items_table.item(row, 4)
 			price_text = (price_item.text() if price_item else "").strip()
 			count_text = (count_item.text() if count_item else "").strip()
 			name = (name_item.text() if name_item else "").strip()
+			is_free = self._row_is_free(row)
 
 			if not name:
 				return None, f"نام آیتم در ردیف {row + 1} خالی است"
@@ -688,12 +819,128 @@ class FactorMakerUI(QWidget):
 				return None, f"تعداد در ردیف {row + 1} باید بیشتر از صفر باشد"
 			if price < 0:
 				return None, f"قیمت در ردیف {row + 1} نمی‌تواند منفی باشد"
+			if is_free and price <= 0:
+				return None, f"برای ردیف رایگان {row + 1} قیمت واقعی را وارد کنید"
 
-			items[name] = [count, price]
+			items[name] = [count, price, is_free]
 
 		return items, None
 
-	def add_item_row(self):
+	def clear_items(self):
+		self.items_table.setRowCount(0)
+		self.total_inputs_changed.emit()
+
+	def set_table_items(self, items: dict | list):
+		"""Load engine dict or stored list into the items table."""
+		self.items_table.blockSignals(True)
+		self.items_table.setRowCount(0)
+		rows = []
+		if isinstance(items, dict):
+			for name, entry in items.items():
+				rows.append(
+					{
+						"name": name,
+						"count": int(entry[0]),
+						"price": int(entry[1]),
+						"free": bool(entry[2]) if len(entry) > 2 else False,
+					}
+				)
+		else:
+			rows = list(items or [])
+
+		for row_data in rows:
+			if self.items_table.rowCount() >= MAX_ITEMS:
+				break
+			row = self.items_table.rowCount()
+			self.items_table.insertRow(row)
+			price_item = QTableWidgetItem(str(int(row_data.get("price") or 0)))
+			count_item = QTableWidgetItem(str(int(row_data.get("count") or 1)))
+			name_item = QTableWidgetItem(str(row_data.get("name") or ""))
+			for item in (price_item, count_item, name_item):
+				item.setTextAlignment(int(ALIGN_RIGHT))
+			self.items_table.setItem(row, 2, price_item)
+			self.items_table.setItem(row, 3, count_item)
+			self.items_table.setItem(row, 4, name_item)
+			self._set_row_controls(row, free=bool(row_data.get("free")))
+		self.items_table.blockSignals(False)
+		self.total_inputs_changed.emit()
+
+	def collect_form_snapshot(self) -> dict:
+		"""Current form values for save/load (items may be empty/invalid)."""
+		items, _error = self.get_table_items()
+		item_rows = []
+		if items:
+			for name, entry in items.items():
+				item_rows.append(
+					{
+						"name": name,
+						"count": int(entry[0]),
+						"price": int(entry[1]),
+						"free": bool(entry[2]) if len(entry) > 2 else False,
+					}
+				)
+		else:
+			# Soft collect even incomplete rows for drafts
+			for row in range(self.items_table.rowCount()):
+				name = (self.items_table.item(row, 4).text() if self.items_table.item(row, 4) else "").strip()
+				if not name:
+					continue
+				try:
+					price = int((self.items_table.item(row, 2).text() if self.items_table.item(row, 2) else "0").strip() or "0")
+					count = int((self.items_table.item(row, 3).text() if self.items_table.item(row, 3) else "1").strip() or "1")
+				except ValueError:
+					continue
+				item_rows.append(
+					{
+						"name": name,
+						"count": count,
+						"price": price,
+						"free": self._row_is_free(row),
+					}
+				)
+
+		fid_text = self.id_input.text().strip()
+		try:
+			factor_id = int(fid_text) if fid_text else None
+		except ValueError:
+			factor_id = None
+
+		return {
+			"factor_id": factor_id,
+			"factor_date": self.date_input.text().strip(),
+			"title": self.title_input.text().strip(),
+			"addons": self.addons_input.text().strip(),
+			"sby": self.from_input.text().strip(),
+			"phone": self.phone_input.text().strip(),
+			"location": self.location_input.toPlainText().strip(),
+			"off": float(self.off_input.value()),
+			"tax": float(self.tax_input.value()),
+			"desc1": self.desc1_input.toPlainText(),
+			"desc2": self.desc2_input.toPlainText(),
+			"items": item_rows,
+			"themes": self.selected_themes(),
+		}
+
+	def apply_factor_snapshot(self, data: dict):
+		"""Fill the whole form from a saved factor."""
+		self._loading_profile = True
+		if data.get("factor_id") is not None:
+			self.id_input.setText(str(data["factor_id"]))
+		self.date_input.setText(str(data.get("factor_date") or ""))
+		self.title_input.setText(str(data.get("title") or ""))
+		self.addons_input.setText(str(data.get("addons") or ""))
+		self.from_input.setText(str(data.get("sby") or ""))
+		self.phone_input.setText(str(data.get("phone") or ""))
+		self.location_input.setPlainText(str(data.get("location") or ""))
+		self.off_input.setValue(float(data.get("off") or 0))
+		self.tax_input.setValue(float(data.get("tax") or 0))
+		self.desc1_input.setPlainText(str(data.get("desc1") or ""))
+		self.desc2_input.setPlainText(str(data.get("desc2") or ""))
+		self.set_selected_themes(data.get("themes") or DEFAULT_THEMES)
+		self._loading_profile = False
+		self.set_table_items(data.get("items") or [])
+
+	def add_item_row(self, *, free: bool = False):
 		if self.items_table.rowCount() >= MAX_ITEMS:
 			QMessageBox.information(self, "پیام", f"حداکثر {MAX_ITEMS} آیتم مجاز است")
 			return
@@ -705,36 +952,54 @@ class FactorMakerUI(QWidget):
 		name_item = QTableWidgetItem("")
 		for item in (price_item, count_item, name_item):
 			item.setTextAlignment(int(ALIGN_RIGHT))
-		self.items_table.setItem(row, 1, price_item)
-		self.items_table.setItem(row, 2, count_item)
-		self.items_table.setItem(row, 3, name_item)
+		self.items_table.setItem(row, 2, price_item)
+		self.items_table.setItem(row, 3, count_item)
+		self.items_table.setItem(row, 4, name_item)
 		self.items_table.blockSignals(False)
-		self._set_delete_button(row)
+		self._set_row_controls(row, free=free)
 		self.total_inputs_changed.emit()
 
-	def _set_delete_button(self, row: int):
+	def _row_is_free(self, row: int) -> bool:
+		widget = self.items_table.cellWidget(row, 1)
+		if isinstance(widget, QWidget):
+			cb = widget.findChild(QCheckBox)
+			if cb is not None:
+				return cb.isChecked()
+		return False
+
+	def _set_row_controls(self, row: int, *, free: bool = False):
+		# Delete button
 		btn = QPushButton("حذف")
 		btn.setObjectName("RowDeleteButton")
 		btn.setCursor(Qt.CursorShape.PointingHandCursor)
 		btn.clicked.connect(lambda *_: self._delete_row_by_button(btn))
 		self.items_table.setCellWidget(row, 0, btn)
 
+		# Free checkbox centered in cell
+		wrap = QWidget()
+		wrap_layout = QHBoxLayout(wrap)
+		wrap_layout.setContentsMargins(0, 0, 0, 0)
+		wrap_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		cb = QCheckBox()
+		cb.setChecked(free)
+		cb.setToolTip("این ردیف رایگان است — قیمت نمایش داده می‌شود ولی در جمع حساب نمی‌شود")
+		cb.toggled.connect(lambda *_: self.total_inputs_changed.emit())
+		wrap_layout.addWidget(cb)
+		self.items_table.setCellWidget(row, 1, wrap)
+
+	def _set_delete_button(self, row: int):
+		self._set_row_controls(row, free=self._row_is_free(row))
+
 	def _delete_row_by_button(self, button: QPushButton):
 		for row in range(self.items_table.rowCount()):
-			if self.items_table.cellWidget(row, 0) is button:
+			widget = self.items_table.cellWidget(row, 0)
+			if widget is button:
 				self.items_table.removeRow(row)
-				self._rebind_delete_buttons()
+				self._rebind_row_controls()
 				self.total_inputs_changed.emit()
 				return
 
-	def _rebind_delete_buttons(self):
+	def _rebind_row_controls(self):
 		for row in range(self.items_table.rowCount()):
-			widget = self.items_table.cellWidget(row, 0)
-			if isinstance(widget, QPushButton):
-				try:
-					widget.clicked.disconnect()
-				except RuntimeError:
-					pass
-				widget.clicked.connect(lambda *_ , b=widget: self._delete_row_by_button(b))
-			else:
-				self._set_delete_button(row)
+			free = self._row_is_free(row)
+			self._set_row_controls(row, free=free)

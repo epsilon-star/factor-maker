@@ -1,22 +1,25 @@
 # Python
 __pycache__/
-output/
 *.pyc
+*.pyo
+
+# App runtime data
+output/
+temp/
 profiles/
+data/
+*.db
 
 # Virtual Environments
 .venv/
-.venv
+.venv/
 
-# temp folders
-temp/
-temp
+# Packaging / local noise
+*.spec
+dist/
+build/
 
-
-# agents
+# Editors / agents
 .cursor/
-.cursor
 .agents/
-.agents
 .codex/
-.codex

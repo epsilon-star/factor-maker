@@ -145,21 +145,28 @@ class PersianFactor:
 			dtab = doc.tables[0]
 			idx = 0
 			for x in buffer['items']:
-				buffer['items'][x]  # type: ignore
+				entry = buffer['items'][x]  # type: ignore
+				count = int(entry[0])
+				price = int(entry[1])
+				is_free = bool(entry[2]) if len(entry) > 2 else False
+				display_name = f"{x} (رایگان)" if is_free else x
+
 				res = dtab.cell(idx, 3)
-				res.text = x
+				res.text = display_name
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
 				self._style_paragraph(res.paragraphs[0], size=7)
 				res = dtab.cell(idx, 2)
-				res.text = self.persianNumber(str(buffer['items'][x][0]))  # type: ignore
+				res.text = self.persianNumber(str(count))
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 				self._style_paragraph(res.paragraphs[0], size=7)
 				res = dtab.cell(idx, 1)
-				res.text = self.formatNumber(str(buffer['items'][x][1]))  # type: ignore
+				# Option B: keep the real unit price visible even when free
+				res.text = self.formatNumber(str(price))
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 				self._style_paragraph(res.paragraphs[0], size=7)
 				res = dtab.cell(idx, 0)
-				res.text = self.formatNumber(str(round(buffer['items'][x][1] * buffer['items'][x][0])))  # type: ignore
+				# Line total: «رایگان» instead of charged amount
+				res.text = "رایگان" if is_free else self.formatNumber(str(round(price * count)))
 				res.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 				self._style_paragraph(res.paragraphs[0], size=7)
 				idx += 1
@@ -210,18 +217,23 @@ class PersianFactor:
 				self.msgShow(f"خطا در موتور\nPersianFactor.makeFactor() -> [{EXP}]")
 			return False
 
-	def calculateTotal(self,items:list,tax:float,off:float):
-		""" Calculate The Total Price In The END """
-		try:	
-			buffer = items.copy()
+	def calculateTotal(self, items: list, tax: float, off: float):
+		"""Calculate invoice total. Free rows ([count, price, True]) are excluded."""
+		try:
 			buff = 0
-			for x in buffer:
-				buff += x[0] * x[1]
-			buff *= (100 + (tax))/100
-			buff *= (100 - (off))/100
+			for entry in items:
+				count = int(entry[0])
+				price = int(entry[1])
+				is_free = bool(entry[2]) if len(entry) > 2 else False
+				if is_free:
+					continue
+				buff += count * price
+			buff *= (100 + tax) / 100
+			buff *= (100 - off) / 100
 			return round(buff)
 		except Exception as EXP:
-			if self.msgShow: self.msgShow(f"خطا در موتور\nPersianFactor.calculateTotal() -> [{EXP}]")
+			if self.msgShow:
+				self.msgShow(f"خطا در موتور\nPersianFactor.calculateTotal() -> [{EXP}]")
 			return 0.0
 
 	def getPDF(self,path:str):
