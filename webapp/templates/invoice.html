@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>فاکتور {{ factor.factor_id }} — {{ factor.title }}</title>
+	<link rel="stylesheet" href="/static/css/invoice.css?v=1" />
+	<style>
+		:root { --accent: {{ accent }}; --accent-soft: {{ accent_soft }}; }
+	</style>
+</head>
+<body>
+	<div class="print-bar no-print">
+		<button type="button" class="print-btn" onclick="window.print()">چاپ / ذخیره PDF</button>
+		<a class="back-btn" href="/">بازگشت به فاکتورساز</a>
+	</div>
+
+	<article class="invoice" id="invoice">
+		<header class="inv-head">
+			<div class="brand-side">
+				<p class="brand">متانویا</p>
+				<p class="brand-sub">{{ factor.sby }}</p>
+			</div>
+			<div class="meta-side">
+				<h1>{{ factor.title or "فاکتور" }}</h1>
+				{% if factor.addons %}<p class="addons">{{ factor.addons }}</p>{% endif %}
+				<dl>
+					<div><dt>شماره</dt><dd>{{ factor_id_fa }}</dd></div>
+					<div><dt>تاریخ</dt><dd>{{ factor_date_fa }}</dd></div>
+				</dl>
+			</div>
+		</header>
+
+		<section class="parties">
+			<div>
+				<h2>فروشنده</h2>
+				<p><strong>{{ factor.sby }}</strong></p>
+				<p>{{ factor.phone }}</p>
+				<p class="addr">{{ factor.location }}</p>
+			</div>
+		</section>
+
+		<table class="items">
+			<thead>
+				<tr>
+					<th>#</th>
+					<th>شرح کالا / خدمات</th>
+					<th>تعداد</th>
+					<th>قیمت واحد</th>
+					<th>مبلغ</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for row in rows %}
+				<tr class="{% if row.free %}is-free{% endif %}">
+					<td>{{ row.index_fa }}</td>
+					<td class="name">{{ row.name }}{% if row.free %} <span class="badge">رایگان</span>{% endif %}</td>
+					<td>{{ row.count_fa }}</td>
+					<td>{{ row.price_fa }}</td>
+					<td>{% if row.free %}رایگان{% else %}{{ row.line_fa }}{% endif %}</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+
+		<section class="totals">
+			<div class="notes">
+				{% if factor.desc1 %}<p>{{ factor.desc1 }}</p>{% endif %}
+				{% if factor.desc2 %}<p>{{ factor.desc2 }}</p>{% endif %}
+			</div>
+			<div class="sum-box">
+				<div><span>جمع اقلام</span><strong>{{ subtotal_fa }}</strong></div>
+				{% if factor.tax %}<div><span>مالیات ({{ tax_fa }}٪)</span><strong>{{ tax_amount_fa }}</strong></div>{% endif %}
+				{% if factor.off %}<div><span>تخفیف ({{ off_fa }}٪)</span><strong>{{ off_amount_fa }}</strong></div>{% endif %}
+				<div class="grand"><span>مبلغ قابل پرداخت</span><strong>{{ total_fa }} ریال</strong></div>
+				<p class="words">{{ total_words }}</p>
+			</div>
+		</section>
+
+		<footer class="inv-foot">
+			<p>ساخته‌شده با فاکتور ساز متانویا — نسخه وب قابل چاپ</p>
+		</footer>
+	</article>
+
+	<script>
+		// Optional: auto-open print when ?print=1
+		if (new URLSearchParams(location.search).has("print")) {
+			window.addEventListener("load", () => setTimeout(() => window.print(), 250));
+		}
+	</script>
+</body>
+</html>

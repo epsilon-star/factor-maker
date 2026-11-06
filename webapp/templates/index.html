@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+	<meta name="theme-color" content="#0f766e" />
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<title>فاکتور ساز متانویا</title>
+	<link rel="stylesheet" href="/static/css/app.css?v=7" />
+</head>
+<body>
+	<div class="app-shell">
+		<header class="topbar">
+			<div class="brand-block">
+				<p class="brand">متانویا</p>
+				<h1 class="app-title">فاکتور ساز</h1>
+			</div>
+			<button type="button" class="icon-btn" id="themeToggle" aria-label="تغییر تم">
+				<span class="icon-sun" aria-hidden="true"></span>
+			</button>
+		</header>
+
+		<main class="content">
+			<section class="panel hero-actions">
+				<button type="button" class="btn ghost" id="btnNew">جدید</button>
+				<button type="button" class="btn ghost" id="btnOpen">باز کردن</button>
+				<button type="button" class="btn ghost" id="btnSave">ذخیره</button>
+			</section>
+
+			<section class="panel">
+				<div class="section-head">
+					<h2>پروفایل فروشنده</h2>
+					<div class="row-actions">
+						<button type="button" class="btn tiny" id="btnProfileNew">جدید</button>
+						<button type="button" class="btn tiny" id="btnProfileEdit">ویرایش</button>
+						<button type="button" class="btn tiny danger" id="btnProfileDelete">حذف</button>
+					</div>
+				</div>
+				<div class="field">
+					<span>پروفایل</span>
+					<div class="custom-select" id="profileSelectWrap" data-name="profile">
+						<button type="button" class="custom-select-trigger" id="profileSelectBtn" aria-haspopup="listbox" aria-expanded="false">
+							<span id="profileSelectLabel">انتخاب پروفایل</span>
+							<span class="chevron" aria-hidden="true"></span>
+						</button>
+						<ul class="custom-select-menu" id="profileSelectMenu" role="listbox" hidden></ul>
+						<input type="hidden" id="profileSelect" value="" />
+					</div>
+				</div>
+			</section>
+
+			<section class="panel">
+				<h2>اطلاعات فاکتور</h2>
+				<div class="grid-2">
+					<label class="field">
+						<span>آیدی</span>
+						<input class="control" id="factorId" inputmode="numeric" autocomplete="off" />
+					</label>
+					<label class="field">
+						<span>تاریخ</span>
+						<input class="control" id="factorDate" autocomplete="off" />
+					</label>
+				</div>
+				<label class="field">
+					<span>عنوان</span>
+					<input class="control" id="title" placeholder="مثلاً فاکتور فروش" />
+				</label>
+				<label class="field">
+					<span>افزودنی</span>
+					<input class="control" id="addons" />
+				</label>
+			</section>
+
+			<section class="panel">
+				<h2>فروشنده</h2>
+				<label class="field">
+					<span>از طرف</span>
+					<input class="control" id="sby" />
+				</label>
+				<label class="field">
+					<span>تلفن</span>
+					<input class="control" id="phone" inputmode="tel" />
+				</label>
+				<label class="field">
+					<span>آدرس</span>
+					<textarea class="control" id="location" rows="3"></textarea>
+				</label>
+				<div class="grid-2">
+					<label class="field">
+						<span>تخفیف ٪</span>
+						<input class="control" id="off" type="number" min="0" step="0.1" value="0" />
+					</label>
+					<label class="field">
+						<span>مالیات ٪</span>
+						<input class="control" id="tax" type="number" min="0" step="0.1" value="0" />
+					</label>
+				</div>
+				<label class="field">
+					<span>توضیح ۱</span>
+					<textarea class="control" id="desc1" rows="2"></textarea>
+				</label>
+				<label class="field">
+					<span>توضیح ۲</span>
+					<textarea class="control" id="desc2" rows="2"></textarea>
+				</label>
+			</section>
+
+			<section class="panel">
+				<div class="section-head">
+					<h2>اقلام</h2>
+					<button type="button" class="btn tiny" id="btnAddItem">+ قلم</button>
+				</div>
+				<div id="itemsList" class="items-list"></div>
+				<p class="total-line" id="totalLine">جمع کل: ۰ ریال</p>
+			</section>
+
+			<section class="panel">
+				<h2>طراحی خروجی</h2>
+				<p class="hint">صفحه وب را برای چاپ PDF انتخاب کنید؛ Word فقط در صورت نیاز</p>
+				<div class="format-grid" id="formatGrid"></div>
+				<div id="themeBlock">
+					<h3 class="subhead" id="themeSubhead">رنگ فاکتور</h3>
+					<div class="theme-grid" id="themeGrid"></div>
+				</div>
+			</section>
+
+			<section class="panel" id="filesPanel" hidden>
+				<h2>خروجی‌ها</h2>
+				<div id="filesList" class="files-list"></div>
+			</section>
+		</main>
+
+		<footer class="bottom-bar">
+			<button type="button" class="btn primary wide" id="btnGenerate">ساخت فاکتور</button>
+		</footer>
+	</div>
+
+	<dialog id="listDialog">
+		<div class="dialog-card">
+			<h3>فاکتورهای ذخیره‌شده</h3>
+			<div id="factorList" class="factor-list"></div>
+			<div class="dialog-actions">
+				<button type="button" class="btn ghost" id="listCloseBtn">بستن</button>
+			</div>
+		</div>
+	</dialog>
+
+	<dialog id="profileDialog">
+		<div class="dialog-card" id="profileForm">
+			<h3 id="profileDialogTitle">پروفایل</h3>
+			<label class="field"><span>نام</span><input class="control" id="pName" autocomplete="off" /></label>
+			<label class="field"><span>از طرف</span><input class="control" id="pSby" /></label>
+			<label class="field"><span>تلفن</span><input class="control" id="pPhone" /></label>
+			<label class="field"><span>آدرس</span><textarea class="control" id="pLocation" rows="2"></textarea></label>
+			<div class="grid-2">
+				<label class="field"><span>تخفیف ٪</span><input class="control" id="pOff" type="number" value="0" /></label>
+				<label class="field"><span>مالیات ٪</span><input class="control" id="pTax" type="number" value="0" /></label>
+			</div>
+			<label class="switch">
+				<input type="checkbox" id="pDefault" />
+				<span class="switch-ui" aria-hidden="true"></span>
+				<span>پیش‌فرض</span>
+			</label>
+			<div class="dialog-actions">
+				<button type="button" class="btn ghost" id="profileCancelBtn">انصراف</button>
+				<button type="button" class="btn primary" id="profileSaveBtn">ذخیره</button>
+			</div>
+		</div>
+	</dialog>
+
+	<dialog id="toastDialog">
+		<div class="dialog-card toast">
+			<p id="toastText"></p>
+			<button type="button" class="btn primary" id="toastOkBtn">باشه</button>
+		</div>
+	</dialog>
+
+	<div class="overlay" id="busyOverlay" hidden style="display: none">
+		<div class="spinner" aria-hidden="true"></div>
+		<p id="busyText">در حال ساخت فاکتور…</p>
+		<button type="button" class="btn ghost" id="busyCancel">انصراف</button>
+	</div>
+
+	<script src="/static/js/app.js?v=7" defer></script>
+</body>
+</html>

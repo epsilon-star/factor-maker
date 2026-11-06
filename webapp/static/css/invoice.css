@@ -1,0 +1,295 @@
+@font-face {
+	font-family: "IRANSansXV";
+	src: url("/static/fonts/IRANSansXV.ttf") format("truetype");
+	font-display: swap;
+}
+
+:root {
+	--accent: #0f766e;
+	--accent-soft: #ccfbf1;
+	--ink: #14201d;
+	--muted: #5b6b66;
+	--line: #d7e0dc;
+	--paper: #ffffff;
+	--bg: #eef2f1;
+	--font: "IRANSansXV", "Tahoma", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	font-family: var(--font);
+	color: var(--ink);
+	background: var(--bg);
+	line-height: 1.6;
+}
+
+.print-bar {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	display: flex;
+	gap: 10px;
+	justify-content: center;
+	flex-wrap: wrap;
+	padding: 12px 16px;
+	background: rgba(255, 255, 255, 0.92);
+	border-bottom: 1px solid var(--line);
+	backdrop-filter: blur(8px);
+}
+
+.print-btn,
+.back-btn {
+	appearance: none;
+	border-radius: 12px;
+	padding: 11px 18px;
+	font: inherit;
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.print-btn {
+	border: none;
+	background: var(--accent);
+	color: #fff;
+	font-weight: 700;
+}
+
+.back-btn {
+	border: 1px solid var(--line);
+	background: #fff;
+	color: var(--ink);
+}
+
+.invoice {
+	width: min(900px, calc(100% - 24px));
+	margin: 18px auto 40px;
+	background: var(--paper);
+	border: 1px solid var(--line);
+	border-radius: 18px;
+	padding: clamp(18px, 4vw, 36px);
+	box-shadow: 0 16px 40px rgba(20, 32, 29, 0.08);
+}
+
+.inv-head {
+	display: grid;
+	grid-template-columns: 1.1fr 1fr;
+	gap: 18px;
+	padding-bottom: 18px;
+	border-bottom: 3px solid var(--accent);
+	margin-bottom: 18px;
+}
+
+.brand {
+	margin: 0;
+	font-size: clamp(1.8rem, 5vw, 2.4rem);
+	font-weight: 800;
+	color: var(--accent);
+	line-height: 1;
+}
+
+.brand-sub {
+	margin: 8px 0 0;
+	color: var(--muted);
+}
+
+.meta-side {
+	text-align: left;
+}
+
+.meta-side h1 {
+	margin: 0 0 6px;
+	font-size: 1.25rem;
+}
+
+.addons {
+	margin: 0 0 10px;
+	color: var(--muted);
+	font-size: 0.92rem;
+}
+
+.meta-side dl {
+	margin: 0;
+	display: grid;
+	gap: 6px;
+}
+
+.meta-side dl div {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.meta-side dt {
+	color: var(--muted);
+}
+
+.meta-side dd {
+	margin: 0;
+	font-weight: 700;
+}
+
+.parties {
+	margin-bottom: 18px;
+	padding: 14px 16px;
+	background: var(--accent-soft);
+	border-radius: 14px;
+}
+
+.parties h2 {
+	margin: 0 0 8px;
+	font-size: 0.85rem;
+	color: var(--muted);
+	font-weight: 600;
+}
+
+.parties p {
+	margin: 0 0 4px;
+}
+
+.addr {
+	white-space: pre-wrap;
+}
+
+.items {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 8px 0 18px;
+	font-size: 0.92rem;
+}
+
+.items th,
+.items td {
+	border: 1px solid var(--line);
+	padding: 10px 8px;
+	text-align: center;
+	vertical-align: middle;
+}
+
+.items th {
+	background: color-mix(in srgb, var(--accent) 12%, white);
+	font-weight: 700;
+}
+
+.items td.name {
+	text-align: right;
+}
+
+.items tr.is-free td {
+	background: #f8faf9;
+}
+
+.badge {
+	display: inline-block;
+	margin-inline-start: 6px;
+	padding: 2px 8px;
+	border-radius: 999px;
+	background: var(--accent);
+	color: #fff;
+	font-size: 0.72rem;
+}
+
+.totals {
+	display: grid;
+	grid-template-columns: 1.2fr 1fr;
+	gap: 16px;
+	align-items: start;
+}
+
+.notes p {
+	margin: 0 0 8px;
+	color: var(--muted);
+	white-space: pre-wrap;
+	font-size: 0.9rem;
+}
+
+.sum-box {
+	border: 1px solid var(--line);
+	border-radius: 14px;
+	padding: 12px 14px;
+	background: #fbfcfc;
+}
+
+.sum-box > div {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 6px 0;
+	border-bottom: 1px dashed var(--line);
+}
+
+.sum-box > div:last-of-type {
+	border-bottom: none;
+}
+
+.sum-box .grand {
+	margin-top: 4px;
+	padding-top: 10px;
+	border-top: 2px solid var(--accent);
+	border-bottom: none;
+	font-size: 1.05rem;
+	color: var(--accent);
+}
+
+.words {
+	margin: 10px 0 0;
+	font-size: 0.85rem;
+	color: var(--muted);
+}
+
+.inv-foot {
+	margin-top: 22px;
+	padding-top: 12px;
+	border-top: 1px solid var(--line);
+	text-align: center;
+	color: var(--muted);
+	font-size: 0.78rem;
+}
+
+@media (max-width: 700px) {
+	.inv-head,
+	.totals {
+		grid-template-columns: 1fr;
+	}
+
+	.meta-side {
+		text-align: right;
+	}
+}
+
+@media print {
+	@page {
+		size: A4;
+		margin: 12mm;
+	}
+
+	body {
+		background: #fff;
+	}
+
+	.no-print {
+		display: none !important;
+	}
+
+	.invoice {
+		width: 100%;
+		margin: 0;
+		border: none;
+		border-radius: 0;
+		box-shadow: none;
+		padding: 0;
+	}
+
+	.items th {
+		-webkit-print-color-adjust: exact;
+		print-color-adjust: exact;
+	}
+
+	.parties,
+	.badge,
+	.sum-box .grand {
+		-webkit-print-color-adjust: exact;
+		print-color-adjust: exact;
+	}
+}

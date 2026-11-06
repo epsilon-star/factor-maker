@@ -1,5 +1,0 @@
-python-docx
-docxtpl
-docx2pdf
-PySide6
-jdatetime

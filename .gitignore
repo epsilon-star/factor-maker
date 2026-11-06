@@ -3,16 +3,16 @@ __pycache__/
 *.pyc
 *.pyo
 
-# App runtime data
-output/
-temp/
-profiles/
-data/
+# App runtime data (both clients)
+**/output/
+**/temp/
+**/profiles/
+**/data/
 *.db
 
 # Virtual Environments
 .venv/
-.venv/
+**/.venv/
 
 # Packaging / local noise
 *.spec
